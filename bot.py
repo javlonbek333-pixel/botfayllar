@@ -12,7 +12,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
 
-    # YouTube (odatiy + shorts + youtu.be) va Instagram tekshiruvi
     if not any(domain in url for domain in ["youtube.com", "youtu.be", "instagram.com"]):
         await update.message.reply_text("Iltimos, faqat YouTube yoki Instagram havolasini yuboring.")
         return
@@ -21,15 +20,17 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_filename = f"video_{update.message.message_id}.mp4"
 
     ydl_opts = {
-        # Videoni 480p yoki 360p sifatda sig'dirish:
-        'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best',
+        # Formatni soddalashtirish va eng barqaror mp4 o'lchamni olish
+        'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
         'outtmpl': output_filename,
         'quiet': True,
         'no_warnings': True,
-        # YouTube va Shorts blokirovkalarini aylanib o'tish uchun:
+        'check_formats': False,
+        # YouTube va Shorts blokirovkalarini chetlab o'tish sozlamalari:
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web']
+                'player_client': ['android', 'ios', 'web_creator']
             }
         }
     }
@@ -49,8 +50,8 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(output_filename)
 
     except Exception as e:
-        logging.error(f"Xatolik: {e}")
-        await status_msg.edit_text("⚠️ Videoni yuklashda xatolik yuz berdi. Havola to'g'riligini yoki video shaxsiy (private) emasligini tekshiring.")
+        logging.error(f"Xatolik tafsiloti: {e}")
+        await status_msg.edit_text("⚠️ Videoni yuklashda xatolik yuz berdi. Telegram server cheklovi yoki video bloklangan bo'lishi mumkin.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
