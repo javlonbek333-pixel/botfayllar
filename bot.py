@@ -20,17 +20,13 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_filename = f"video_{update.message.message_id}.mp4"
 
     ydl_opts = {
-        # Formatni soddalashtirish va eng barqaror mp4 o'lchamni olish
-        'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+        'format': 'b[filesize<45M]/best[ext=mp4]/best',
         'outtmpl': output_filename,
         'quiet': True,
         'no_warnings': True,
-        'check_formats': False,
-        # YouTube va Shorts blokirovkalarini chetlab o'tish sozlamalari:
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web_creator']
+                'player_client': ['android', 'ios']
             }
         }
     }
@@ -50,8 +46,8 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(output_filename)
 
     except Exception as e:
-        logging.error(f"Xatolik tafsiloti: {e}")
-        await status_msg.edit_text("⚠️ Videoni yuklashda xatolik yuz berdi. Telegram server cheklovi yoki video bloklangan bo'lishi mumkin.")
+        logging.error(f"Xatolik: {e}")
+        await status_msg.edit_text("⚠️ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
@@ -61,4 +57,4 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
