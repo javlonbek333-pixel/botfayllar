@@ -7,7 +7,7 @@ import yt_dlp
 logging.basicConfig(level=logging.INFO)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Salom! Video yuklash uchun Instagram yoki YouTube (Shorts) havolasini yuboring.")
+    await update.message.reply_text("Salom! Video yuklash uchun Instagram yoki YouTube havolasini yuboring.")
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
@@ -20,13 +20,14 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_filename = f"video_{update.message.message_id}.mp4"
 
     ydl_opts = {
-        'format': 'b[filesize<45M]/best[ext=mp4]/best',
+        'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best',
         'outtmpl': output_filename,
         'quiet': True,
         'no_warnings': True,
+        'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios']
+                'player_client': ['android']
             }
         }
     }
@@ -47,7 +48,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Xatolik: {e}")
-        await status_msg.edit_text("⚠️ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
+        await status_msg.edit_text("⚠️ Videoni yuklashda xatolik yuz berdi. Manzilni tekshirib qayta yuboring.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
