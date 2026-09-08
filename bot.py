@@ -15,11 +15,12 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Iltimos, faqat YouTube yoki Instagram havolasini yuboring.")
         return
 
-    status_msg = await update.message.reply_text("Video yuklanmoqda, kuting...")
+    status_msg = await update.message.reply_text("Video 360p sifatda yuklanmoqda, kuting...")
     output_filename = f"video_{update.message.message_id}.mp4"
 
     ydl_opts = {
-        'format': 'bestvideo[filesize<45M][ext=mp4]+bestaudio[ext=m4a]/best[filesize<45M][ext=mp4]/best',
+        # Videoni 360p (yoki undan past) sifatda yuklaydi:
+        'format': 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best',
         'outtmpl': output_filename,
         'quiet': True,
     }
@@ -39,7 +40,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(output_filename)
 
     except Exception as e:
-        await status_msg.edit_text("Videoni yuklashda xatolik yuz berdi yoki fayl o'lchami juda katta.")
+        await status_msg.edit_text("Videoni yuklashda xatolik yuz berdi.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
