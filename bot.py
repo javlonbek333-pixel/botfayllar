@@ -19,17 +19,22 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_filename = f"video_{update.message.message_id}.mp4"
 
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'bestvideo[filesize<45M][ext=mp4]+bestaudio[ext=m4a]/best[filesize<45M][ext=mp4]/best',
         'outtmpl': output_filename,
         'quiet': True,
-        'max_filesize': 50 * 1024 * 1024, # 50MB cheklov
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-        await update.message.reply_video(video=open(output_filename, 'rb'))
+        bot_username = (await context.bot.get_me()).username
+        caption_text = f"🎬 Video @{bot_username} orqali yuklab olindi."
+
+        await update.message.reply_video(
+            video=open(output_filename, 'rb'),
+            caption=caption_text
+        )
         await status_msg.delete()
         os.remove(output_filename)
 
@@ -39,7 +44,6 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(output_filename)
 
 if __name__ == '__main__':
-    # BU YERGA @BotFather'DAN OLGAN TOKENINGIZNI YOZING:
     BOT_TOKEN = "8758335086:AAExX40PXwUg_YH2xultYXuYWou4QtT_nJY"
     
     app = ApplicationBuilder().token(BOT_TOKEN).build()
