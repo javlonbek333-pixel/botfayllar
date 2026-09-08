@@ -53,7 +53,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(output_filename)
 
 if __name__ == '__main__':
-    BOT_TOKEN = "8758335086:AAExX40PXwUg_YH2xultYXuYWou4QtT_nJY"
+    BOT_TOKEN = "8758335086:AAEZPVQnQ11iHgDskmO3MlVlNiQdFRMbmwE"
     
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
