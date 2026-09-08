@@ -7,22 +7,31 @@ import yt_dlp
 logging.basicConfig(level=logging.INFO)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Salom! Video yuklash uchun Instagram yoki YouTube havolasini yuboring.")
+    await update.message.reply_text("Salom! Video yuklash uchun Instagram yoki YouTube (Shorts) havolasini yuboring.")
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    if not ("youtube.com" in url or "youtu.be" in url or "instagram.com" in url):
+    url = update.message.text.strip()
+
+    # YouTube (odatiy + shorts + youtu.be) va Instagram tekshiruvi
+    if not any(domain in url for domain in ["youtube.com", "youtu.be", "instagram.com"]):
         await update.message.reply_text("Iltimos, faqat YouTube yoki Instagram havolasini yuboring.")
         return
 
-    status_msg = await update.message.reply_text("Video 360p sifatda yuklanmoqda, kuting...")
+    status_msg = await update.message.reply_text("🎬 Video yuklanmoqda, biroz kuting...")
     output_filename = f"video_{update.message.message_id}.mp4"
 
     ydl_opts = {
-        # Videoni 360p (yoki undan past) sifatda yuklaydi:
-        'format': 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best',
+        # Videoni 480p yoki 360p sifatda sig'dirish:
+        'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best',
         'outtmpl': output_filename,
         'quiet': True,
+        'no_warnings': True,
+        # YouTube va Shorts blokirovkalarini aylanib o'tish uchun:
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        }
     }
 
     try:
@@ -40,7 +49,8 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(output_filename)
 
     except Exception as e:
-        await status_msg.edit_text("Videoni yuklashda xatolik yuz berdi.")
+        logging.error(f"Xatolik: {e}")
+        await status_msg.edit_text("⚠️ Videoni yuklashda xatolik yuz berdi. Havola to'g'riligini yoki video shaxsiy (private) emasligini tekshiring.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
