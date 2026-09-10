@@ -1,3 +1,5 @@
+import static_ffmpeg
+static_ffmpeg.add_paths()  # FFmpeg'ni tizimga ulash
 import os
 import re
 import uuid
