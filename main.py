@@ -4,13 +4,8 @@ import uuid
 import shutil
 import logging
 import requests
-import subprocess
 
-import static_ffmpeg
-import yt_dlp
-from shazamio import Shazam
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -20,15 +15,8 @@ from telegram.ext import (
     filters,
 )
 
-# FFmpeg ulanishi
-static_ffmpeg.add_paths()
-ffmpeg_exe = "ffmpeg"
-ffprobe_exe = "ffprobe"
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DOWNLOAD_DIR = "/tmp/bot_downloads"
-TARGET_SIZE_MB = 35
-
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 logging.basicConfig(
@@ -36,28 +24,15 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-shazam = Shazam()
-
 # ==========================================
-# /START BUYRUQI
+# /START & HELP
 # ==========================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Assalomu aleykum xush kelibsiz!\n\n"
-        "@yuklatgbot orqali quyidagilarni yuklab olishingiz mumkin:\n\n"
-        "• Instagram - post, stories, reels;\n"
-        "• YouTube - video, shorts, audio;\n"
-        "• Tik Tok - suv belgisiz video;\n"
-        "• Facebook - reels;\n"
-        "• Pinterest - rasm, video;\n"
-        "• Snapchat - rasm, video;\n"
-        "• Likee - rasm, video;\n"
-        "• Threads - rasm, video.\n\n"
-        "🎵 Qo'shiq topish bo'limi:\n"
-        "• Qo'shiq nomi yoki ijrochini yozib yuboring;\n"
-        "• Musiqa va audio/videolardan qo'shiqni aniqlash uchun faylni yuboring.\n\n"
-        "🚀 Media yuklashni boshlash uchun uning havolasini yoki nomini yuboring."
+        "👋 Assalomu aleykum!\n\n"
+        "🎵 Qo'shiq nomi yoki ijrochini yozib yuboring.\n"
+        "🚀 Bot musiqani qidirib, yuklab beradi!"
     )
 
 def format_time(seconds):
@@ -67,153 +42,126 @@ def format_time(seconds):
     return f"{m}:{s:02d}"
 
 # ==========================================
-# MUSIQA ANIQLASH (VOICE/VIDEO/AUDIO)
+# API ORQALI QIDIRISH (YouTube Invidious API)
 # ==========================================
 
-async def handle_media_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    status = await update.message.reply_text("🔍 Musiqa aniqlanmoqda...")
-    job_id = str(uuid.uuid4())
-    work_dir = os.path.join(DOWNLOAD_DIR, job_id)
-    os.makedirs(work_dir, exist_ok=True)
-    file_path = os.path.join(work_dir, "media_file")
-
-    try:
-        message = update.message
-        media = message.voice or message.audio or message.video or message.video_note
-        telegram_file = await context.bot.get_file(media.file_id)
-        await telegram_file.download_to_drive(file_path)
-
-        out = await shazam.recognize(file_path)
-        track = out.get("track")
-
-        if track:
-            title = track.get("title", "Noma'lum")
-            subtitle = track.get("subtitle", "Noma'lum")
-            await status.edit_text(
-                f"🎵 **Topilgan qo'shiq:**\n\n"
-                f"👤 **Ijrochi:** {subtitle}\n"
-                f"🎧 **Nomi:** {title}\n\n"
-                f"@yuklatgbot orqali topildi",
-                parse_mode="Markdown"
-            )
-        else:
-            await status.edit_text("❌ Afsuski, ushbu fayldan musiqa topilmadi.")
-
-    except Exception as e:
-        logging.exception("SHAZAM XATOSI")
-        await status.edit_text("❌ Musiqani aniqlashda xatolik yuz berdi.")
-    finally:
-        if os.path.exists(work_dir):
-            shutil.rmtree(work_dir, ignore_errors=True)
+def search_youtube_api(query):
+    # Public Invidious API serverlari (YouTube IP blokingizni aylanib o'tadi)
+    instances = [
+        "https://inv.riverside.rocks",
+        "https://invidious.drgns.space",
+        "https://vid.puffyan.us"
+    ]
+    for instance in instances:
+        try:
+            url = f"{instance}/api/v1/search"
+            params = {"q": query, "type": "video"}
+            res = requests.get(url, params=params, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                results = []
+                for item in data[:10]:
+                    results.append({
+                        "id": item.get("videoId"),
+                        "title": item.get("title"),
+                        "duration": item.get("lengthSeconds", 0),
+                        "url": f"https://www.youtube.com/watch?v={item.get('videoId')}"
+                    })
+                if results:
+                    return results
+        except Exception:
+            continue
+    return []
 
 # ==========================================
-# MATN BO'YICHA QIDIRUV / URL YUKLASH
+# API ORQALI YUKLAB OLISH (Cobalt API)
+# ==========================================
+
+def download_audio_api(video_url, output_path):
+    cobalt_instances = [
+        "https://api.cobalt.tools/api/json",
+        "https://cobalt-api.kwippy.com/api/json"
+    ]
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    payload = {
+        "url": video_url,
+        "downloadMode": "audio",
+        "audioFormat": "mp3"
+    }
+
+    for instance in cobalt_instances:
+        try:
+            res = requests.post(instance, json=payload, headers=headers, timeout=12)
+            data = res.json()
+            if "url" in data:
+                audio_res = requests.get(data["url"], stream=True, timeout=30)
+                with open(output_path, "wb") as f:
+                    for chunk in audio_res.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                return True
+        except Exception:
+            continue
+    return False
+
+# ==========================================
+# TEXT HANDLER (QIDIRUV)
 # ==========================================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-
-    # AGAR HAVOLA BO'LSA (URL)
-    if re.match(r"^https?://", text):
-        status = await update.message.reply_text("⏳ Media yuklanmoqda...")
-        job_id = str(uuid.uuid4())
-        work_dir = os.path.join(DOWNLOAD_DIR, job_id)
-        os.makedirs(work_dir, exist_ok=True)
-        file_path = os.path.join(work_dir, "media.mp4")
-
-        try:
-            ydl_opts = {
-                "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "outtmpl": file_path,
-                "quiet": True,
-                "no_warnings": True,
-                "extractor_args": {"youtube": {"player_client": ["android", "ios"]}}
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([text])
-
-            if os.path.exists(file_path):
-                with open(file_path, "rb") as video:
-                    await update.message.reply_video(video=video, caption="@yuklatgbot orqali yuklab olindi")
-                await status.delete()
-            else:
-                await status.edit_text("❌ Ushbu mediani yuklab bo'lmadi.")
-        except Exception:
-            await status.edit_text("❌ Yuklashda xatolik yuz berdi.")
-        finally:
-            if os.path.exists(work_dir):
-                shutil.rmtree(work_dir, ignore_errors=True)
-        return
-
-    # QIDIRUV (QO'SHIQ NOMI / IJROCHI)
     status = await update.message.reply_text("🔍 Qo'shiqlar qidirilmoqda...")
+
     try:
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "quiet": True,
-            "default_search": "ytsearch10:",
-            "noplaylist": True,
-            "skip_download": True,
-            "ignoreerrors": True,
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "web"]
-                }
+        entries = search_youtube_api(text)
+
+        if not entries:
+            await status.edit_text("❌ Afsuski, hech qanday qo'shiq topilmadi.")
+            return
+
+        msg_text = f"🎧 **{text}** bo'yicha topilgan qo'shiqlar:\n\n"
+        buttons = []
+        row1, row2 = [], []
+
+        if "search_results" not in context.user_data:
+            context.user_data["search_results"] = {}
+
+        for idx, entry in enumerate(entries[:10], start=1):
+            title = entry["title"]
+            duration = format_time(entry["duration"])
+            url = entry["url"]
+
+            msg_text += f"{idx}. {title} **{duration}**\n"
+            
+            song_id = f"{update.message.message_id}_{idx}"
+            context.user_data["search_results"][song_id] = {
+                "url": url,
+                "title": title
             }
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(text, download=False)
-            entries = info.get("entries", []) if info else []
 
-            # Bo'sh yoki None obyektlarni tozalash
-            valid_entries = [e for e in entries if e and isinstance(e, dict)]
+            btn = InlineKeyboardButton(str(idx), callback_data=f"dl:{song_id}")
+            if idx <= 5:
+                row1.append(btn)
+            else:
+                row2.append(btn)
 
-            if not valid_entries:
-                await status.edit_text("❌ Afsuski, hech qanday qo'shiq topilmadi.")
-                return
+        buttons.append(row1)
+        if row2:
+            buttons.append(row2)
+        buttons.append([InlineKeyboardButton("❌", callback_data="cancel_search")])
 
-            msg_text = f"🎧 **{text}** bo'yicha topilgan qo'shiqlar:\n\n"
-            buttons = []
-            row1, row2 = [], []
-
-            if "search_results" not in context.user_data:
-                context.user_data["search_results"] = {}
-
-            for idx, entry in enumerate(valid_entries[:10], start=1):
-                title = entry.get("title", "Noma'lum")
-                duration = format_time(entry.get("duration", 0))
-                url = entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
-
-                msg_text += f"{idx}. {title} **{duration}**\n"
-                
-                song_id = f"{update.message.message_id}_{idx}"
-                context.user_data["search_results"][song_id] = {
-                    "url": url,
-                    "title": title
-                }
-
-                btn = InlineKeyboardButton(str(idx), callback_data=f"dl:{song_id}")
-                if idx <= 5:
-                    row1.append(btn)
-                else:
-                    row2.append(btn)
-
-            buttons.append(row1)
-            if row2:
-                buttons.append(row2)
-            buttons.append([InlineKeyboardButton("❌", callback_data="cancel_search")])
-
-            reply_markup = InlineKeyboardMarkup(buttons)
-            await status.edit_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+        reply_markup = InlineKeyboardMarkup(buttons)
+        await status.edit_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
         logging.exception("QIDIRUV XATOSI")
         await status.edit_text("❌ Qidiruvda xatolik yuz berdi. Biroq birozdan so'ng qayta urinib ko'ring.")
 
 # ==========================================
-# TUGMA BOSILGANDA MUSIQANI YUKLASH
+# CALLBACK HANDLER (YUKLASH)
 # ==========================================
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -240,33 +188,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = os.path.join(work_dir, "song.mp3")
 
         try:
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": os.path.join(work_dir, "song.%(ext)s"),
-                "quiet": True,
-                "no_warnings": True,
-                "ffmpeg_location": ffmpeg_exe,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }],
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android", "ios"]
-                    }
-                }
-            }
+            # API orqali yuklashga harakat qilamiz
+            success = download_audio_api(song_data["url"], audio_file)
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([song_data["url"]])
-
-            if not os.path.exists(audio_file):
-                files = os.listdir(work_dir)
-                if files:
-                    audio_file = os.path.join(work_dir, files[0])
-
-            if os.path.exists(audio_file):
+            if success and os.path.exists(audio_file):
                 with open(audio_file, "rb") as audio:
                     await query.message.reply_audio(
                         audio=audio,
@@ -275,10 +200,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 await status.delete()
             else:
-                await status.edit_text("❌ Musiqani yuklab bo'lmadi.")
+                await status.edit_text("❌ Musiqani yuklab bo'lmadi, qayta urinib ko'ring.")
 
         except Exception as e:
-            logging.exception("AUDIO YUKLASH XATOSI")
+            logging.exception("YUKLASH XATOSI")
             await status.edit_text("❌ Musiqani yuklashda xatolik yuz berdi.")
         finally:
             if os.path.exists(work_dir):
@@ -295,7 +220,6 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO | filters.VIDEO_NOTE, handle_media_music))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
