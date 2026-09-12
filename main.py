@@ -27,18 +27,13 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ==========================================
-# /START BUYRUQI
-# ==========================================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Assalomu aleykum, xush kelibsiz!\n\n"
-        "📥 **Media yuklash:**\n"
-        "• Instagram, TikTok, Facebook, YouTube, Pinterest havolasini yuboring.\n\n"
+        "👋 Assalomu aleykum!\n\n"
+        "📥 **Media yuklash (480p formatda):**\n"
+        "• Instagram, TikTok, Facebook, YouTube havolasini yuboring.\n\n"
         "🎵 **Musiqa qidirish:**\n"
-        "• Qo'shiq nomi yoki ijrochini yozib yuboring.\n\n"
-        "🚀 Boshlash uchun havola yoki qo'shiq nomini yuboring!"
+        "• Qo'shiq nomi yoki ijrochini yozib yuboring."
     )
 
 def format_time(seconds):
@@ -48,19 +43,20 @@ def format_time(seconds):
     return f"{m}:{s:02d}"
 
 # ==========================================
-# VIDEO SIQISH (FFMPEG COMPRESSION)
+# VIDEO SIQISH (480p FORMAT)
 # ==========================================
 
-def compress_video(input_path, output_path):
-    """FFmpeg yordamida videoni siqish va hajmini kichiklashtirish"""
+def compress_to_480p(input_path, output_path):
+    """Videoni 480p o'lchamga o'tkazish va siqish"""
     try:
         cmd = [
             "ffmpeg",
             "-y",
             "-i", input_path,
+            "-vf", "scale=-2:480",       # Balandligini 480p ga o'tkazish
             "-vcodec", "libx264",
-            "-crf", "28",              # CRF 28 - hajmni tez va optimal siqish
-            "-preset", "faster",       # Tezroq qayta ishlash
+            "-crf", "26",
+            "-preset", "faster",
             "-acodec", "aac",
             "-b:a", "128k",
             output_path
@@ -69,33 +65,51 @@ def compress_video(input_path, output_path):
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             return True
     except Exception as e:
-        logging.error(f"Video siqishda xatolik: {e}")
+        logging.error(f"480p siqishda xatolik: {e}")
     return False
 
 # ==========================================
-# UNIVERSAL MEDIA YUKLOVCHI
+# MEDIA VA MUSIQA YUKLASH (YT-DLP + API)
 # ==========================================
 
-def download_media_cobalt(url, output_path):
+def download_audio_fallback(url, output_path):
+    """Musiqani yuklash uchun ko'p bosqichli usul"""
+    # 1. yt-dlp bilan MP3 shaklida yuklash
+    try:
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": output_path.replace(".mp3", ""),
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+            "quiet": True,
+            "no_warnings": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        if os.path.exists(output_path):
+            return True
+    except Exception:
+        pass
+
+    # 2. Cobalt API orqali yuklash (zaxira)
     cobalt_instances = [
         "https://api.cobalt.tools/api/json",
         "https://cobalt-api.kwippy.com/api/json"
     ]
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    }
-    payload = {"url": url}
+    payload = {"url": url, "downloadMode": "audio", "audioFormat": "mp3"}
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
     for instance in cobalt_instances:
         try:
-            res = requests.post(instance, json=payload, headers=headers, timeout=15)
+            res = requests.post(instance, json=payload, headers=headers, timeout=12)
             data = res.json()
             if "url" in data:
-                media_res = requests.get(data["url"], stream=True, timeout=60)
+                audio_res = requests.get(data["url"], stream=True, timeout=30)
                 with open(output_path, "wb") as f:
-                    for chunk in media_res.iter_content(chunk_size=8192):
+                    for chunk in audio_res.iter_content(chunk_size=8192):
                         f.write(chunk)
                 return True
         except Exception:
@@ -112,15 +126,14 @@ def search_youtube(query):
             "extract_flat": True,
             "skip_download": True,
             "quiet": True,
-            "no_warnings": True,
             "default_search": "ytsearch10",
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
+            info = ydl.extract_info(f"ytsearch10:{query}", download=False)
             entries = info.get("entries", []) if info else []
             results = []
             for item in entries:
-                if item and isinstance(item, dict):
+                if item:
                     results.append({
                         "id": item.get("id"),
                         "title": item.get("title", "Noma'lum"),
@@ -131,98 +144,35 @@ def search_youtube(query):
                 return results
     except Exception:
         pass
-
-    instances = [
-        "https://invidious.drgns.space",
-        "https://vid.puffyan.us",
-        "https://inv.riverside.rocks"
-    ]
-    for instance in instances:
-        try:
-            url = f"{instance}/api/v1/search"
-            params = {"q": query, "type": "video"}
-            res = requests.get(url, params=params, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                results = []
-                for item in data[:10]:
-                    results.append({
-                        "id": item.get("videoId"),
-                        "title": item.get("title"),
-                        "duration": item.get("lengthSeconds", 0),
-                        "url": f"https://www.youtube.com/watch?v={item.get('videoId')}"
-                    })
-                if results:
-                    return results
-        except Exception:
-            continue
-
     return []
 
-def download_audio_cobalt(video_url, output_path):
-    cobalt_instances = [
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt-api.kwippy.com/api/json"
-    ]
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
-    payload = {
-        "url": video_url,
-        "downloadMode": "audio",
-        "audioFormat": "mp3"
-    }
-
-    for instance in cobalt_instances:
-        try:
-            res = requests.post(instance, json=payload, headers=headers, timeout=15)
-            data = res.json()
-            if "url" in data:
-                audio_res = requests.get(data["url"], stream=True, timeout=30)
-                with open(output_path, "wb") as f:
-                    for chunk in audio_res.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                return True
-        except Exception:
-            continue
-    return False
-
 # ==========================================
-# TEXT HANDLER (HAVOLA YOKI QIDIRUV)
+# TEXT HANDLER
 # ==========================================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
-    # 1. AGAR HAVOLA (URL) YUBORILGAN BO'LSA
+    # HAVOLA BO'LSA (VIDEO)
     if re.match(r"^https?://", text):
-        status = await update.message.reply_text("⏳ Media yuklanmoqda va siqilmoqda...")
+        status = await update.message.reply_text("⏳ Video yuklanmoqda va 480p ga siqilmoqda...")
         job_id = str(uuid.uuid4())
         work_dir = os.path.join(DOWNLOAD_DIR, job_id)
         os.makedirs(work_dir, exist_ok=True)
-        raw_path = os.path.join(work_dir, "raw_media.mp4")
-        compressed_path = os.path.join(work_dir, "compressed_media.mp4")
+        raw_path = os.path.join(work_dir, "raw.mp4")
+        compressed_path = os.path.join(work_dir, "compressed_480p.mp4")
 
         try:
-            # First Attempt: Cobalt API
-            success = download_media_cobalt(text, raw_path)
+            ydl_opts = {
+                "format": "bestvideo[height<=720]+bestaudio/best",
+                "outtmpl": raw_path,
+                "quiet": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([text])
 
-            # Fallback: yt-dlp
-            if not success or not os.path.exists(raw_path):
-                ydl_opts = {
-                    "format": "bestvideo+bestaudio/best",
-                    "outtmpl": raw_path,
-                    "quiet": True,
-                    "no_warnings": True,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([text])
-
-            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 0:
-                # Video siqiladi
-                compressed = compress_video(raw_path, compressed_path)
+            if os.path.exists(raw_path):
+                compressed = compress_to_480p(raw_path, compressed_path)
                 final_file = compressed_path if compressed else raw_path
 
                 with open(final_file, "rb") as video:
@@ -232,17 +182,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 await status.delete()
             else:
-                await status.edit_text("❌ Ushbu mediani yuklab bo'lmadi.")
-
-        except Exception as e:
-            logging.exception("MEDIA YUKLASH XATOSI")
-            await status.edit_text("❌ Mediani yuklashda xatolik yuz berdi.")
+                await status.edit_text("❌ Mediani yuklab bo'lmadi.")
+        except Exception:
+            logging.exception("MEDIA XATOSI")
+            await status.edit_text("❌ Video yuklashda xatolik yuz berdi.")
         finally:
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
         return
 
-    # 2. AGAR MATN (QO'SHIQ NOMI) YUBORILGAN BO'LSA
+    # QO'SHIQ QIDIRISH
     status = await update.message.reply_text("🔍 Qo'shiqlar qidirilmoqda...")
     try:
         entries = search_youtube(text)
@@ -285,12 +234,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(buttons)
         await status.edit_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
 
-    except Exception as e:
+    except Exception:
         logging.exception("QIDIRUV XATOSI")
-        await status.edit_text("❌ Qidiruvda xatolik yuz berdi. Qayta urinib ko'ring.")
+        await status.edit_text("❌ Qidiruvda xatolik yuz berdi.")
 
 # ==========================================
-# CALLBACK HANDLER
+# CALLBACK HANDLER (YUKLASH)
 # ==========================================
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -317,7 +266,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = os.path.join(work_dir, "song.mp3")
 
         try:
-            success = download_audio_cobalt(song_data["url"], audio_file)
+            success = download_audio_fallback(song_data["url"], audio_file)
 
             if success and os.path.exists(audio_file):
                 with open(audio_file, "rb") as audio:
@@ -330,16 +279,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await status.edit_text("❌ Musiqani yuklab bo'lmadi.")
 
-        except Exception as e:
+        except Exception:
             logging.exception("AUDIO YUKLASH XATOSI")
             await status.edit_text("❌ Musiqani yuklashda xatolik yuz berdi.")
         finally:
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
-
-# ==========================================
-# MAIN
-# ==========================================
 
 def main():
     if not BOT_TOKEN:
