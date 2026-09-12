@@ -1,42 +1,41 @@
+import logging
 import os
 import re
-import uuid
 import shutil
-import logging
 import subprocess
+import uuid
 
+# FFmpeg ni Railway muhitiga ulash
+import static_ffmpeg
 import yt_dlp
-
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
     ContextTypes,
+    MessageHandler,
     filters,
 )
+
+# FFmpeg va FFprobe fayllarini majburiy ro'yxatdan o'tkazish
+ffmpeg_exe, ffprobe_exe = static_ffmpeg.add_paths()
 
 # ==========================================
 # SOZLAMALAR
 # ==========================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
 DOWNLOAD_DIR = "/tmp/videos"
-
-# Siqilgandan keyingi taxminiy maksimal hajm
 TARGET_SIZE_MB = 45
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
 
 # ==========================================
 # LOG
 # ==========================================
 
 logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
 
@@ -44,610 +43,251 @@ logging.basicConfig(
 # /START
 # ==========================================
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
 
-    await update.message.reply_text(
-        "👋 Assalomu alaykum!\n\n"
-        "🎬 Men YouTube va Instagram videolarini yuklab beraman.\n\n"
-        "🔗 Video havolasini yuboring."
-    )
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  await update.message.reply_text(
+      "👋 Assalomu alaykum!\n\n"
+      "🎬 Men YouTube va Instagram videolarini yuklab beraman.\n\n"
+      "🔗 Video havolasini yuboring."
+  )
 
 
 # ==========================================
-# FAYL HAJMI
+# FAYL HAJMI MEGAPAYTDA
 # ==========================================
+
 
 def get_size_mb(filename):
-
-    if not os.path.exists(filename):
-        return 0
-
-    return os.path.getsize(filename) / (
-        1024 * 1024
-    )
+  if not os.path.exists(filename):
+    return 0
+  return os.path.getsize(filename) / (1024 * 1024)
 
 
 # ==========================================
-# VIDEO DAVOMIYLIGI
+# VIDEO DAVOMIYLIGI (SEKUND)
 # ==========================================
+
 
 def get_duration(filename):
+  command = [
+      ffprobe_exe,
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filename,
+  ]
 
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        filename
-    ]
+  result = subprocess.run(
+      command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+  )
 
-    result = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-    try:
-        return float(
-            result.stdout.strip()
-        )
-    except Exception:
-        return 60
+  try:
+    return float(result.stdout.strip())
+  except Exception:
+    return 60
 
 
 # ==========================================
-# VIDEO SIQISH
+# VIDEO SIQISH (FFMPEG)
 # ==========================================
 
-def compress_video(
-    input_file,
-    output_file
-):
 
-    duration = get_duration(
-        input_file
-    )
+def compress_video(input_file, output_file):
+  duration = get_duration(input_file)
+  if duration <= 0:
+    duration = 60
 
-    if duration <= 0:
-        duration = 60
+  # Maqsadli video bitrate hisoblash
+  target_bits = TARGET_SIZE_MB * 8 * 1024 * 1024
+  audio_bitrate = 96000
+  video_bitrate = int((target_bits / duration) - audio_bitrate)
 
-    # Maqsadli hajm
-    target_bits = (
-        TARGET_SIZE_MB
-        * 8
-        * 1024
-        * 1024
-    )
+  if video_bitrate < 150000:
+    video_bitrate = 150000
+  if video_bitrate > 3500000:
+    video_bitrate = 3500000
 
-    # Audio bitrate
-    audio_bitrate = 96000
+  command = [
+      ffmpeg_exe,
+      "-y",
+      "-i",
+      input_file,
+      # Video kadrlarini 480p ga tushirish (Hajmni keskin kamaytiradi)
+      "-vf",
+      "scale=-2:480",
+      "-c:v",
+      "libx264",
+      "-b:v",
+      str(video_bitrate),
+      "-maxrate",
+      str(int(video_bitrate * 1.15)),
+      "-bufsize",
+      str(int(video_bitrate * 2)),
+      "-preset",
+      "veryfast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "96k",
+      "-movflags",
+      "+faststart",
+      output_file,
+  ]
 
-    # Video bitrate
-    video_bitrate = int(
-        (
-            target_bits / duration
-        )
-        - audio_bitrate
-    )
+  logging.info("FFmpeg siqish ishga tushmoqda...")
 
-    # Juda past bo'lib ketmasin
-    if video_bitrate < 150000:
-        video_bitrate = 150000
+  result = subprocess.run(
+      command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+  )
 
-    # Juda katta bo'lib ketmasin
-    if video_bitrate > 5000000:
-        video_bitrate = 5000000
+  if result.returncode != 0:
+    logging.error("FFMPEG XATOSI:\n%s", result.stderr)
+    raise Exception("FFmpeg xatosi:\n" + result.stderr[-1000:])
 
-    command = [
-        "ffmpeg",
-        "-y",
-
-        "-i",
-        input_file,
-
-        # Video
-        "-c:v",
-        "libx264",
-
-        "-b:v",
-        str(video_bitrate),
-
-        "-maxrate",
-        str(
-            int(video_bitrate * 1.15)
-        ),
-
-        "-bufsize",
-        str(
-            int(video_bitrate * 2)
-        ),
-
-        # Tezlik
-        "-preset",
-        "veryfast",
-
-        # Audio
-        "-c:a",
-        "aac",
-
-        "-b:a",
-        "96k",
-
-        # MP4
-        "-movflags",
-        "+faststart",
-
-        output_file
-    ]
-
-    logging.info(
-        "FFmpeg ishga tushmoqda..."
-    )
-
-    result = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-    if result.returncode != 0:
-
-        logging.error(
-            "FFMPEG XATOSI:\n%s",
-            result.stderr
-        )
-
-        raise Exception(
-            "FFmpeg xatosi:\n"
-            + result.stderr[-1500:]
-        )
-
-    if not os.path.exists(
-        output_file
-    ):
-
-        raise Exception(
-            "FFmpeg video fayl yaratmadi."
-        )
+  if not os.path.exists(output_file):
+    raise Exception("FFmpeg video fayl yaratmadi.")
 
 
 # ==========================================
 # YOUTUBE / INSTAGRAM TEKSHIRISH
 # ==========================================
 
+
 def is_supported_url(url):
+  supported_domains = [
+      "youtube.com",
+      "youtu.be",
+      "youtube-nocookie.com",
+      "instagram.com",
+  ]
+  url_lower = url.lower()
+  return any(domain in url_lower for domain in supported_domains)
 
-    supported_domains = [
-        "youtube.com",
-        "youtu.be",
-        "youtube-nocookie.com",
-        "instagram.com"
+
+# ==========================================
+# VIDEO YUKLASH VA YUBORISH
+# ==========================================
+
+
+async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  if not update.message or not update.message.text:
+    return
+
+  url = update.message.text.strip()
+
+  if not re.match(r"^https?://", url) or not is_supported_url(url):
+    await update.message.reply_text(
+        "❌ Noto'g'ri havola. Faqat YouTube va Instagram havolalarini yuboring."
+    )
+    return
+
+  status = await update.message.reply_text("⏳ Video tayyorlanmoqda...")
+  job_id = str(uuid.uuid4())
+  work_dir = os.path.join(DOWNLOAD_DIR, job_id)
+  os.makedirs(work_dir, exist_ok=True)
+
+  output_file = os.path.join(work_dir, "compressed.mp4")
+
+  try:
+    await status.edit_text("⬇️ Video yuklanmoqda...")
+
+    ydl_opts = {
+        "format": (
+            "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best"
+        ),
+        "outtmpl": os.path.join(work_dir, "original.%(ext)s"),
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "ffmpeg_location": ffmpeg_exe,
+        "extractor_args": {"youtube": {"player_client": ["android", "ios"]}},
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+      info = ydl.extract_info(url, download=True)
+      prepared_file = ydl.prepare_filename(info)
+
+    possible_files = [
+        f
+        for f in os.listdir(work_dir)
+        if os.path.isfile(os.path.join(work_dir, f)) and f != "compressed.mp4"
     ]
+    if not possible_files:
+      raise Exception("Yuklangan video fayli topilmadi.")
 
-    url_lower = url.lower()
-
-    return any(
-        domain in url_lower
-        for domain in supported_domains
-    )
-
-
-# ==========================================
-# VIDEO YUKLASH
-# ==========================================
-
-async def download_video(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    if not update.message:
-        return
-
-    if not update.message.text:
-        return
-
-    url = update.message.text.strip()
-
-    # URL tekshirish
-    if not re.match(
-        r"^https?://",
-        url
-    ):
-
-        await update.message.reply_text(
-            "❌ Havola noto‘g‘ri.\n\n"
-            "🔗 YouTube yoki Instagram "
-            "video havolasini yuboring."
-        )
-
-        return
-
-    # YouTube / Instagram
-    if not is_supported_url(url):
-
-        await update.message.reply_text(
-            "❌ Bu havola qo‘llab-quvvatlanmaydi.\n\n"
-            "Faqat YouTube va Instagram "
-            "havolalarini yuboring."
-        )
-
-        return
-
-    # Holat xabari
-    status = await update.message.reply_text(
-        "⏳ Video tayyorlanmoqda..."
-    )
-
-    # Har bir yuklashga alohida papka
-    job_id = str(
-        uuid.uuid4()
-    )
-
-    work_dir = os.path.join(
-        DOWNLOAD_DIR,
-        job_id
-    )
-
-    os.makedirs(
+    input_file = os.path.join(
         work_dir,
-        exist_ok=True
-    )
-
-    input_file = None
-
-    output_file = os.path.join(
-        work_dir,
-        "compressed.mp4"
-    )
-
-    try:
-
-        # ==================================
-        # YUKLASH
-        # ==================================
-
-        await status.edit_text(
-            "⬇️ Video yuklanmoqda..."
-        )
-
-        ydl_opts = {
-
-            # 720p gacha
-            # Railway xotirasini tejaydi
-            "format": (
-                "bestvideo[height<=720]"
-                "[ext=mp4]+"
-                "bestaudio[ext=m4a]/"
-
-                "best[height<=720]"
-                "[ext=mp4]/"
-
-                "best[height<=720]/"
-
-                "best"
-            ),
-
-            # Fayl nomi
-            "outtmpl": os.path.join(
-                work_dir,
-                "original.%(ext)s"
-            ),
-
-            # MP4 ga birlashtirish
-            "merge_output_format": "mp4",
-
-            # Playlist yuklamaslik
-            "noplaylist": True,
-
-            # Qayta urinish
-            "retries": 5,
-
-            "fragment_retries": 5,
-
-            # Internet timeout
-            "socket_timeout": 60,
-
-            # Log
-            "quiet": True,
-
-            "no_warnings": True,
-
-            # YouTube
-            "extractor_args": {
-                "youtube": {
-                    "player_client": [
-                        "android",
-                        "web"
-                    ]
-                }
-            }
-        }
-
-        with yt_dlp.YoutubeDL(
-            ydl_opts
-        ) as ydl:
-
-            info = ydl.extract_info(
-                url,
-                download=True
-            )
-
-            prepared_file = (
-                ydl.prepare_filename(info)
-            )
-
-        # ==================================
-        # YUKLANGAN FAYLNI TOPISH
-        # ==================================
-
-        possible_files = []
-
-        if os.path.exists(
-            prepared_file
-        ):
-
-            possible_files.append(
-                prepared_file
-            )
-
-        base = os.path.splitext(
-            prepared_file
-        )[0]
-
-        for ext in [
-            ".mp4",
-            ".mkv",
-            ".webm",
-            ".mov",
-            ".m4v"
-        ]:
-
-            candidate = (
-                base + ext
-            )
-
-            if os.path.exists(
-                candidate
-            ):
-
-                possible_files.append(
-                    candidate
-                )
-
-        # Papkani tekshirish
-        for filename in os.listdir(
-            work_dir
-        ):
-
-            path = os.path.join(
-                work_dir,
-                filename
-            )
-
-            if os.path.isfile(path):
-
-                if filename != "compressed.mp4":
-
-                    possible_files.append(
-                        path
-                    )
-
-        # Takrorlarni olib tashlash
-        possible_files = list(
-            dict.fromkeys(
-                possible_files
-            )
-        )
-
-        if not possible_files:
-
-            raise Exception(
-                "Yuklangan video "
-                "fayli topilmadi."
-            )
-
-        # Eng katta faylni olish
-        input_file = max(
+        max(
             possible_files,
-            key=os.path.getsize
-        )
+            key=lambda x: os.path.getsize(os.path.join(work_dir, x)),
+        ),
+    )
+    original_size = get_size_mb(input_file)
 
-        original_size = get_size_mb(
-            input_file
-        )
+    await status.edit_text(
+        f"✅ Video yuklandi ({original_size:.1f} MB).\n🔄 Hajmi"
+        " kamaytirilmoqda..."
+    )
 
-        logging.info(
-            "Asl video: %.2f MB",
-            original_size
-        )
+    # Siqish
+    compress_video(input_file, output_file)
+    compressed_size = get_size_mb(output_file)
 
-        # ==================================
-        # SIQISH
-        # ==================================
+    final_file = (
+        output_file
+        if (compressed_size > 0 and os.path.exists(output_file))
+        else input_file
+    )
+    final_size = compressed_size if final_file == output_file else original_size
 
-        await status.edit_text(
-            f"✅ Video yuklandi.\n\n"
-            f"📦 Asl hajmi: "
-            f"{original_size:.1f} MB\n\n"
-            f"🔄 Hajmi kamaytirilmoqda..."
-        )
+    await status.edit_text("📤 Video Telegramga yuborilmoqda...")
 
-        compress_video(
-            input_file,
-            output_file
-        )
+    with open(final_file, "rb") as video:
+      await update.message.reply_video(
+          video=video,
+          caption=(
+              f"🎬 Video tayyor!\n📦 Hajmi: {final_size:.1f} MB\n✅ Siqildi"
+          ),
+          supports_streaming=True,
+      )
 
-        compressed_size = get_size_mb(
-            output_file
-        )
+    await status.delete()
 
-        logging.info(
-            "Siqilgan video: %.2f MB",
-            compressed_size
-        )
+  except Exception as e:
+    logging.exception("BOT XATOSI")
+    error_text = str(e)[-1000:]
+    try:
+      await status.edit_text(f"❌ Xatolik yuz berdi:\n\n{error_text}")
+    except Exception:
+      pass
 
-        # ==================================
-        # YAKUNIY FAYL
-        # ==================================
-
-        if (
-            compressed_size > 0
-            and os.path.exists(output_file)
-        ):
-
-            final_file = output_file
-
-            final_size = compressed_size
-
-        else:
-
-            final_file = input_file
-
-            final_size = original_size
-
-        # ==================================
-        # TELEGRAMGA YUBORISH
-        # ==================================
-
-        await status.edit_text(
-            "📤 Video Telegramga yuborilmoqda..."
-        )
-
-        with open(
-            final_file,
-            "rb"
-        ) as video:
-
-            await update.message.reply_video(
-                video=video,
-
-                caption=(
-                    "🎬 Video tayyor!\n\n"
-                    f"📦 Hajmi: "
-                    f"{final_size:.1f} MB\n"
-                    "✅ Siqildi"
-                ),
-
-                supports_streaming=True
-            )
-
-        # Statusni o'chirish
-        await status.delete()
-
-    except Exception as e:
-
-        logging.exception(
-            "BOT XATOSI"
-        )
-
-        error_text = str(e)
-
-        if len(error_text) > 1500:
-
-            error_text = (
-                error_text[-1500:]
-            )
-
-        try:
-
-            await status.edit_text(
-                "❌ Xatolik yuz berdi.\n\n"
-                f"{error_text}"
-            )
-
-        except Exception:
-
-            pass
-
-    finally:
-
-        # ==================================
-        # VAQTINCHALIK FAYLLARNI O'CHIRISH
-        # ==================================
-
-        try:
-
-            if os.path.exists(
-                work_dir
-            ):
-
-                shutil.rmtree(
-                    work_dir,
-                    ignore_errors=True
-                )
-
-        except Exception as e:
-
-            logging.error(
-                "Fayl o'chirish xatosi: %s",
-                e
-            )
+  finally:
+    if os.path.exists(work_dir):
+      shutil.rmtree(work_dir, ignore_errors=True)
 
 
 # ==========================================
-# BOTNI ISHGA TUSHIRISH
+# MAIN
 # ==========================================
+
 
 def main():
+  if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN topilmadi! Railway Variables ga qo'shing.")
 
-    if not BOT_TOKEN:
+  app = ApplicationBuilder().token(BOT_TOKEN).build()
+  app.add_handler(CommandHandler("start", start))
+  app.add_handler(
+      MessageHandler(filters.TEXT & ~filters.COMMAND, download_video)
+  )
 
-        raise RuntimeError(
-            "BOT_TOKEN topilmadi!\n"
-            "Railway Variables bo'limiga "
-            "BOT_TOKEN qo'shing."
-        )
+  logging.info("BOT ISHLAYAPTI")
+  app.run_polling()
 
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .build()
-    )
-
-    # /start
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-    # Video linklari
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
-            download_video
-        )
-    )
-
-    logging.info(
-        "=============================="
-    )
-
-    logging.info(
-        "BOT ISHLAYAPTI"
-    )
-
-    logging.info(
-        "=============================="
-    )
-
-    app.run_polling()
-
-
-# ==========================================
-# START
-# ==========================================
 
 if __name__ == "__main__":
-    main()
+  main()
