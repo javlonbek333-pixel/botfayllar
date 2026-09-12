@@ -17,7 +17,7 @@ from telegram.ext import (
     filters,
 )
 
-# FFmpeg-ni tizimga ulash va yo'llarini aniqlash
+# FFmpeg-ni tizimga ulash
 static_ffmpeg.add_paths()
 ffmpeg_exe = "ffmpeg"
 ffprobe_exe = "ffprobe"
@@ -30,7 +30,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DOWNLOAD_DIR = "/tmp/videos"
 
 # Maqsadli maksimal hajm (MB)
-TARGET_SIZE_MB = 30
+TARGET_SIZE_MB = 35
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -50,7 +50,7 @@ logging.basicConfig(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Assalomu alaykum!\n\n"
-        "🎬 Men YouTube va Instagram videolarini yuklab va siqib beraman.\n\n"
+        "🎬 Men YouTube va Instagram videolarini yuklab va optimal siqib beraman.\n\n"
         "🔗 Video havolasini yuboring."
     )
 
@@ -86,7 +86,7 @@ def get_duration(filename):
         return 60
 
 # ==========================================
-# KUCHAYTIRILGAN VIDEO SIQISH (FFMPEG)
+# MUVOZANATLI VIDEO SIQISH (FFMPEG)
 # ==========================================
 
 def compress_video(input_file, output_file):
@@ -94,34 +94,34 @@ def compress_video(input_file, output_file):
     if duration <= 0:
         duration = 60
 
-    # Bitrate hisoblash (30 MB nishon bo'yicha)
+    # Bitrate hisoblash (35 MB nishon bo'yicha)
     target_bits = TARGET_SIZE_MB * 8 * 1024 * 1024
-    audio_bitrate = 64000  # 64 kbps audio
+    audio_bitrate = 128000  # 128 kbps audio
     video_bitrate = int((target_bits / duration) - audio_bitrate)
 
-    # Chegaralar
-    if video_bitrate < 100000:
-        video_bitrate = 100000
-    if video_bitrate > 1500000:
-        video_bitrate = 1500000
+    # Minimum 600 kbps chegarasi (video juda xiralashib ketmasligi uchun)
+    if video_bitrate < 600000:
+        video_bitrate = 600000
+    if video_bitrate > 3000000:
+        video_bitrate = 3000000
 
     command = [
         ffmpeg_exe,
         "-y",
         "-i", input_file,
-        # Majburiy 360p ruxsatiga tushirish
-        "-vf", "scale=-2:360",
+        # Sifat va hajm mutanosibligi uchun 480p
+        "-vf", "scale=-2:480",
         "-c:v", "libx264",
         "-b:v", str(video_bitrate),
-        "-crf", "28",  # Yuqori siqish ko'rsatkichi
-        "-preset", "veryfast",
+        "-crf", "23",  # Oltin o'rtaliq darajasi
+        "-preset", "fast",
         "-c:a", "aac",
-        "-b:a", "64k",
+        "-b:a", "128k",
         "-movflags", "+faststart",
         output_file
     ]
 
-    logging.info("FFmpeg kuchli siqish rejimida ishlamoqda...")
+    logging.info("FFmpeg muvozanatli siqish rejimida ishlamoqda...")
 
     result = subprocess.run(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -169,13 +169,13 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_file = os.path.join(work_dir, "compressed.mp4")
 
     try:
-        await status.edit_text("⬇️ Video yuklanmoqda (360p)...")
+        await status.edit_text("⬇️ Video yuklanmoqda...")
 
         ydl_opts = {
             "format": (
-                "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/"
-                "best[height<=360][ext=mp4]/"
-                "best[height<=360]/"
+                "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/"
+                "best[height<=720][ext=mp4]/"
+                "best[height<=720]/"
                 "best"
             ),
             "outtmpl": os.path.join(work_dir, "original.%(ext)s"),
@@ -186,8 +186,12 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ffmpeg_location": ffmpeg_exe,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios"]
+                    "player_client": ["ios", "mweb", "android"],
+                    "skip": ["webpage", "configs"]
                 }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
             }
         }
 
@@ -208,7 +212,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await status.edit_text(
             f"✅ Video yuklandi ({original_size:.1f} MB).\n"
-            f"🔄 Hajmi kuchli siqilmoqda..."
+            f"🔄 Hajmi kamaytirilmoqda..."
         )
 
         # Siqish jarayoni
@@ -225,9 +229,9 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 video=video,
                 caption=(
                     f"🎬 Video tayyor!\n"
-                    f"📦 Boshlang'ich hajm: {original_size:.1f} MB\n"
+                    f"📦 Asl hajm: {original_size:.1f} MB\n"
                     f"📉 Siqilgan hajm: {final_size:.1f} MB\n"
-                    f"✅ Sifat: 360p"
+                    f"✅ Sifat: 480p"
                 ),
                 supports_streaming=True
             )
@@ -247,7 +251,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             shutil.rmtree(work_dir, ignore_errors=True)
 
 # ==========================================
-# ASOSIY ISHGA TUSHIRISH
+# MAIN
 # ==========================================
 
 def main():
