@@ -43,8 +43,8 @@ shazam = Shazam()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Assalomu aleykum Eshitbot ga xush lipsiz\n\n"
-        "@Eshitbot orqali quyidagilarni yuklab olishingiz mumkin:\n\n"
+        "👋 Assalomu aleykum xush kelibsiz!\n\n"
+        "@yuklatgbot orqali quyidagilarni yuklab olishingiz mumkin:\n\n"
         "• Instagram - post, stories, reels;\n"
         "• YouTube - video, shorts, audio;\n"
         "• Tik Tok - suv belgisiz video;\n"
@@ -122,7 +122,6 @@ def download_via_cobalt(url, download_dir):
             res = requests.post(api_url, json=payload, headers=headers, timeout=15)
             data = res.json()
             
-            # Yagona fayl bo'lsa
             if data.get("status") == "redirect" or "url" in data:
                 file_url = data.get("url")
                 res_file = requests.get(file_url, stream=True, timeout=30)
@@ -132,7 +131,6 @@ def download_via_cobalt(url, download_dir):
                         f.write(chunk)
                 return {"status": "single", "path": file_path}
             
-            # Albom / Karusel bo'lsa (bir nechta rasm/video)
             elif data.get("status") == "picker":
                 files = []
                 for idx, item in enumerate(data.get("picker", [])):
@@ -196,7 +194,6 @@ async def handle_media_music(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
-    # HAVOLA (URL) BO'LSA
     if re.match(r"^https?://", text):
         status = await update.message.reply_text("⏳ Media yuklanmoqda...")
         job_id = str(uuid.uuid4())
@@ -204,7 +201,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.makedirs(work_dir, exist_ok=True)
 
         try:
-            # 1-Urinish: Cobalt API (TikTok, Instagram, Pinterest, Facebook va hokazolar uchun)
             cobalt_result = download_via_cobalt(text, work_dir)
 
             if cobalt_result:
@@ -232,7 +228,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 elif cobalt_result["status"] == "picker":
                     media_group = []
-                    for item in cobalt_result["files"][:10]: # Telegram ko'pi bilan 10 ta media qabul qiladi
+                    for item in cobalt_result["files"][:10]:
                         if item["path"].endswith((".jpg", ".png", ".jpeg")):
                             media_group.append(InputMediaPhoto(media=open(item["path"], "rb")))
                     if media_group:
@@ -240,7 +236,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await status.delete()
                     return
 
-            # 2-Urinish: yt-dlp (YouTube va boshqa tarmoqlar)
             input_file = os.path.join(work_dir, "downloaded.mp4")
             ydl_opts = {
                 "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -256,7 +251,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
             }
 
-            # Gar cookies.txt mavjud bo'lsa
             if os.path.exists("cookies.txt"):
                 ydl_opts["cookiefile"] = "cookies.txt"
 
@@ -285,7 +279,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-    # QO'SHIQ NOMI BO'LSA
     else:
         status = await update.message.reply_text(f"🔍 '{text}' bo'yicha qo'shiq qidirilmoqda...")
         try:
