@@ -2,3 +2,4 @@ python-telegram-bot
 yt-dlp
 static-ffmpeg
 requests
+shazamio
