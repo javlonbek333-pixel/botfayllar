@@ -19,6 +19,7 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
 DOWNLOAD_DIR = "/tmp/bot_downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -47,13 +48,12 @@ def format_time(seconds):
 # ==========================================
 
 def compress_to_480p(input_path, output_path):
-    """Videoni 480p o'lchamga o'tkazish va siqish"""
     try:
         cmd = [
             "ffmpeg",
             "-y",
             "-i", input_path,
-            "-vf", "scale=-2:480",       # Balandligini 480p ga o'tkazish
+            "-vf", "scale=-2:480",
             "-vcodec", "libx264",
             "-crf", "26",
             "-preset", "faster",
@@ -69,16 +69,46 @@ def compress_to_480p(input_path, output_path):
     return False
 
 # ==========================================
-# MEDIA VA MUSIQA YUKLASH (YT-DLP + API)
+# MUSIQANI ISHONCHLI YUKLASH (MULTI-SOURCE)
 # ==========================================
 
 def download_audio_fallback(url, output_path):
-    """Musiqani yuklash uchun ko'p bosqichli usul"""
-    # 1. yt-dlp bilan MP3 shaklida yuklash
+    # 1. Cobalt API tugunlari orqali yuklash
+    cobalt_instances = [
+        "https://api.cobalt.tools/api/json",
+        "https://cobalt-api.kwippy.com/api/json",
+        "https://co.wuk.sh/api/json"
+    ]
+    payload = {"url": url, "downloadMode": "audio", "audioFormat": "mp3"}
+    headers = {
+        "Accept": "application/json", 
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+
+    for instance in cobalt_instances:
+        try:
+            res = requests.post(instance, json=payload, headers=headers, timeout=15)
+            if res.status_code == 200:
+                data = res.json()
+                download_url = data.get("url")
+                if download_url:
+                    audio_res = requests.get(download_url, stream=True, timeout=40)
+                    if audio_res.status_code == 200:
+                        with open(output_path, "wb") as f:
+                            for chunk in audio_res.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                            return True
+        except Exception as e:
+            logging.warning(f"Cobalt tugunida xatolik: {e}")
+            continue
+
+    # 2. Zaxira usul: yt-dlp orqali yuklash (Browser Emulation bilan)
     try:
         ydl_opts = {
             "format": "bestaudio/best",
-            "outtmpl": output_path.replace(".mp3", ""),
+            "outtmpl": output_path.replace(".mp3", "") + ".%(ext)s",
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
@@ -86,41 +116,51 @@ def download_audio_fallback(url, output_path):
             }],
             "quiet": True,
             "no_warnings": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        if os.path.exists(output_path):
+        
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"yt-dlp audio yuklashda xatolik: {e}")
 
-    # 2. Cobalt API orqali yuklash (zaxira)
-    cobalt_instances = [
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt-api.kwippy.com/api/json"
-    ]
-    payload = {"url": url, "downloadMode": "audio", "audioFormat": "mp3"}
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
-
-    for instance in cobalt_instances:
-        try:
-            res = requests.post(instance, json=payload, headers=headers, timeout=12)
-            data = res.json()
-            if "url" in data:
-                audio_res = requests.get(data["url"], stream=True, timeout=30)
-                with open(output_path, "wb") as f:
-                    for chunk in audio_res.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                return True
-        except Exception:
-            continue
     return False
 
 # ==========================================
-# MUSIQA QIDIRISH
+# MUSIQA QIDIRISH (BARQAROR INVIDIOUS)
 # ==========================================
 
 def search_youtube(query):
+    # Public Invidious tugunlari orqali qidiruv
+    instances = [
+        "https://invidious.drgns.space",
+        "https://vid.puffyan.us",
+        "https://inv.riverside.rocks",
+        "https://invidious.nerdvpn.de"
+    ]
+    for instance in instances:
+        try:
+            url = f"{instance}/api/v1/search"
+            params = {"q": query, "type": "video"}
+            res = requests.get(url, params=params, timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                results = []
+                for item in data[:10]:
+                    results.append({
+                        "id": item.get("videoId"),
+                        "title": item.get("title"),
+                        "duration": item.get("lengthSeconds", 0),
+                        "url": f"https://www.youtube.com/watch?v={item.get('videoId')}"
+                    })
+                if results:
+                    return results
+        except Exception:
+            continue
+
+    # Zaxira qidiruv: yt-dlp
     try:
         ydl_opts = {
             "extract_flat": True,
@@ -144,6 +184,7 @@ def search_youtube(query):
                 return results
     except Exception:
         pass
+
     return []
 
 # ==========================================
@@ -239,7 +280,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.edit_text("❌ Qidiruvda xatolik yuz berdi.")
 
 # ==========================================
-# CALLBACK HANDLER (YUKLASH)
+# CALLBACK HANDLER
 # ==========================================
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -277,7 +318,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 await status.delete()
             else:
-                await status.edit_text("❌ Musiqani yuklab bo'lmadi.")
+                await status.edit_text("❌ Musiqani yuklab bo'lmadi. Qayta urinib ko'ring.")
 
         except Exception:
             logging.exception("AUDIO YUKLASH XATOSI")
