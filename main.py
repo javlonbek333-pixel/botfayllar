@@ -20,7 +20,7 @@ from telegram.ext import (
     filters,
 )
 
-# FFmpeg yo'llarini o'rnatish
+# FFmpeg ulanishi
 static_ffmpeg.add_paths()
 ffmpeg_exe = "ffmpeg"
 ffprobe_exe = "ffprobe"
@@ -37,6 +37,10 @@ logging.basicConfig(
 )
 
 shazam = Shazam()
+
+# ==========================================
+# /START BUYRUQI
+# ==========================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -103,16 +107,45 @@ async def handle_media_music(update: Update, context: ContextTypes.DEFAULT_TYPE)
             shutil.rmtree(work_dir, ignore_errors=True)
 
 # ==========================================
-# QIDIRUV VA MATN HANDLERI
+# MATN BO'YICHA QIDIRUV / URL YUKLASH
 # ==========================================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
+    # AGAR HAVOLA BO'LSA (URL)
     if re.match(r"^https?://", text):
-        await update.message.reply_text("⏳ Havolani yuklash funksiyasi ishlamoqda...")
+        status = await update.message.reply_text("⏳ Media yuklanmoqda...")
+        job_id = str(uuid.uuid4())
+        work_dir = os.path.join(DOWNLOAD_DIR, job_id)
+        os.makedirs(work_dir, exist_ok=True)
+        file_path = os.path.join(work_dir, "media.mp4")
+
+        try:
+            ydl_opts = {
+                "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "outtmpl": file_path,
+                "quiet": True,
+                "no_warnings": True,
+                "extractor_args": {"youtube": {"player_client": ["android", "ios"]}}
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([text])
+
+            if os.path.exists(file_path):
+                with open(file_path, "rb") as video:
+                    await update.message.reply_video(video=video, caption="@yuklatgbot orqali yuklab olindi")
+                await status.delete()
+            else:
+                await status.edit_text("❌ Ushbu mediani yuklab bo'lmadi.")
+        except Exception:
+            await status.edit_text("❌ Yuklashda xatolik yuz berdi.")
+        finally:
+            if os.path.exists(work_dir):
+                shutil.rmtree(work_dir, ignore_errors=True)
         return
 
+    # QIDIRUV (QO'SHIQ NOMI / IJROCHI)
     status = await update.message.reply_text("🔍 Qo'shiqlar qidirilmoqda...")
     try:
         ydl_opts = {
@@ -120,13 +153,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "quiet": True,
             "default_search": "ytsearch10:",
             "noplaylist": True,
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "skip_download": True,
+            "ignoreerrors": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"]
+                }
+            }
         }
+        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(text, download=False)
-            entries = info.get("entries", [])
+            entries = info.get("entries", []) if info else []
 
-            if not entries:
+            # Bo'sh yoki None obyektlarni tozalash
+            valid_entries = [e for e in entries if e and isinstance(e, dict)]
+
+            if not valid_entries:
                 await status.edit_text("❌ Afsuski, hech qanday qo'shiq topilmadi.")
                 return
 
@@ -137,10 +181,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "search_results" not in context.user_data:
                 context.user_data["search_results"] = {}
 
-            for idx, entry in enumerate(entries[:10], start=1):
+            for idx, entry in enumerate(valid_entries[:10], start=1):
                 title = entry.get("title", "Noma'lum")
                 duration = format_time(entry.get("duration", 0))
-                url = entry.get("webpage_url")
+                url = entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
 
                 msg_text += f"{idx}. {title} **{duration}**\n"
                 
@@ -166,10 +210,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.exception("QIDIRUV XATOSI")
-        await status.edit_text("❌ Qidiruvda xatolik yuz berdi.")
+        await status.edit_text("❌ Qidiruvda xatolik yuz berdi. Biroq birozdan so'ng qayta urinib ko'ring.")
 
 # ==========================================
-# MUSIQANI YUKLASH (XATOSIZ USLUB)
+# TUGMA BOSILGANDA MUSIQANI YUKLASH
 # ==========================================
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,48 +237,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_id = str(uuid.uuid4())
         work_dir = os.path.join(DOWNLOAD_DIR, job_id)
         os.makedirs(work_dir, exist_ok=True)
-        
         audio_file = os.path.join(work_dir, "song.mp3")
 
         try:
-            # 1-Urinish: Cobalt API orqali yuklab olish (YouTube bloklarini aylanib o'tadi)
-            cobalt_url = "https://api.cobalt.tools/api/json"
-            payload = {
-                "url": song_data["url"],
-                "downloadMode": "audio",
-                "audioFormat": "mp3"
-            }
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0"
-            }
-            
-            res = requests.post(cobalt_url, json=payload, headers=headers, timeout=15)
-            data = res.json()
-
-            if "url" in data:
-                audio_res = requests.get(data["url"], stream=True, timeout=30)
-                with open(audio_file, "wb") as f:
-                    for chunk in audio_res.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            else:
-                # 2-Urinish: yt-dlp to'g'ridan-to'g'ri m4a/mp3 oqimida yuklash
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "outtmpl": os.path.join(work_dir, "song.%(ext)s"),
-                    "quiet": True,
-                    "no_warnings": True,
-                    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    "extractor_args": {
-                        "youtube": {
-                            "player_client": ["mweb", "android"]
-                        }
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": os.path.join(work_dir, "song.%(ext)s"),
+                "quiet": True,
+                "no_warnings": True,
+                "ffmpeg_location": ffmpeg_exe,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }],
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios"]
                     }
                 }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([song_data["url"]])
-                
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([song_data["url"]])
+
+            if not os.path.exists(audio_file):
                 files = os.listdir(work_dir)
                 if files:
                     audio_file = os.path.join(work_dir, files[0])
@@ -248,7 +275,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 await status.delete()
             else:
-                await status.edit_text("❌ Fayl topilmadi, qayta urinib ko'ring.")
+                await status.edit_text("❌ Musiqani yuklab bo'lmadi.")
 
         except Exception as e:
             logging.exception("AUDIO YUKLASH XATOSI")
@@ -256,6 +283,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
+
+# ==========================================
+# MAIN
+# ==========================================
 
 def main():
     if not BOT_TOKEN:
@@ -273,4 +304,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
