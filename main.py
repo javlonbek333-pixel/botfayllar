@@ -3,6 +3,7 @@ import re
 import uuid
 import shutil
 import logging
+import requests
 import subprocess
 
 import static_ffmpeg
@@ -17,77 +18,45 @@ from telegram.ext import (
     filters,
 )
 
-# FFmpeg-ni tizimga ulash
+# FFmpeg ulanishi
 static_ffmpeg.add_paths()
 ffmpeg_exe = "ffmpeg"
 ffprobe_exe = "ffprobe"
 
-# ==========================================
-# SOZLAMALAR
-# ==========================================
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DOWNLOAD_DIR = "/tmp/videos"
-
-# Maqsadli maksimal hajm (MB)
 TARGET_SIZE_MB = 35
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-# ==========================================
-# LOGGING
-# ==========================================
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", 
     level=logging.INFO
 )
 
-# ==========================================
-# /START BUYRUQI
-# ==========================================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Assalomu alaykum!\n\n"
-        "🎬 Men YouTube va Instagram videolarini yuklab va optimal siqib beraman.\n\n"
-        "🔗 Video havolasini yuboring."
+        "🎬 Instagram va YouTube havolasini yuboring, men videoni yuklab va siqib beraman."
     )
-
-# ==========================================
-# FAYL HAJMI (MB)
-# ==========================================
 
 def get_size_mb(filename):
     if not os.path.exists(filename):
         return 0
     return os.path.getsize(filename) / (1024 * 1024)
 
-# ==========================================
-# VIDEO DAVOMIYLIGI (SEKUND)
-# ==========================================
-
 def get_duration(filename):
     command = [
-        ffprobe_exe,
-        "-v", "error",
+        ffprobe_exe, "-v", "error",
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
         filename
     ]
-    
-    result = subprocess.run(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-    
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         return float(result.stdout.strip())
     except Exception:
         return 60
-
-# ==========================================
-# MUVOZANATLI VIDEO SIQISH (FFMPEG)
-# ==========================================
 
 def compress_video(input_file, output_file):
     duration = get_duration(input_file)
@@ -95,7 +64,7 @@ def compress_video(input_file, output_file):
         duration = 60
 
     target_bits = TARGET_SIZE_MB * 8 * 1024 * 1024
-    audio_bitrate = 128000  # 128 kbps audio
+    audio_bitrate = 128000
     video_bitrate = int((target_bits / duration) - audio_bitrate)
 
     if video_bitrate < 600000:
@@ -104,9 +73,7 @@ def compress_video(input_file, output_file):
         video_bitrate = 3000000
 
     command = [
-        ffmpeg_exe,
-        "-y",
-        "-i", input_file,
+        ffmpeg_exe, "-y", "-i", input_file,
         "-vf", "scale=-2:480",
         "-c:v", "libx264",
         "-b:v", str(video_bitrate),
@@ -118,33 +85,35 @@ def compress_video(input_file, output_file):
         output_file
     ]
 
-    logging.info("FFmpeg muvozanatli siqish rejimida ishlamoqda...")
-
-    result = subprocess.run(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
-        logging.error("FFMPEG XATOSI:\n%s", result.stderr)
-        raise Exception("FFmpeg xatosi:\n" + result.stderr[-1000:])
+        raise Exception("FFmpeg xatosi:\n" + result.stderr[-500:])
 
-    if not os.path.exists(output_file):
-        raise Exception("FFmpeg video fayl yaratmadi.")
-
-# ==========================================
-# URL TEKSHIRUV
-# ==========================================
+def download_via_cobalt(url, output_path):
+    api_url = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
+    payload = {
+        "url": url,
+        "videoQuality": "720"
+    }
+    
+    res = requests.post(api_url, json=payload, headers=headers, timeout=15)
+    data = res.json()
+    
+    if "url" in data:
+        video_res = requests.get(data["url"], stream=True, timeout=30)
+        with open(output_path, "wb") as f:
+            for chunk in video_res.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return True
+    return False
 
 def is_supported_url(url):
-    supported_domains = [
-        "youtube.com", "youtu.be", "youtube-nocookie.com", "instagram.com"
-    ]
-    url_lower = url.lower()
-    return any(domain in url_lower for domain in supported_domains)
-
-# ==========================================
-# VIDEO YUKLASH VA JONATISH
-# ==========================================
+    return any(domain in url.lower() for domain in ["youtube.com", "youtu.be", "instagram.com"])
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -153,9 +122,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
 
     if not re.match(r"^https?://", url) or not is_supported_url(url):
-        await update.message.reply_text(
-            "❌ Noto'g'ri havola. Faqat YouTube va Instagram havolalarini yuboring."
-        )
+        await update.message.reply_text("❌ Noto'g'ri havola. YouTube yoki Instagram havolasini yuboring.")
         return
 
     status = await update.message.reply_text("⏳ Video tayyorlanmoqda...")
@@ -163,54 +130,38 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     work_dir = os.path.join(DOWNLOAD_DIR, job_id)
     os.makedirs(work_dir, exist_ok=True)
 
+    input_file = os.path.join(work_dir, "downloaded.mp4")
     output_file = os.path.join(work_dir, "compressed.mp4")
 
     try:
         await status.edit_text("⬇️ Video yuklanmoqda...")
 
-        ydl_opts = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "outtmpl": os.path.join(work_dir, "original.%(ext)s"),
-            "merge_output_format": "mp4",
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "ffmpeg_location": ffmpeg_exe,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["ios", "mweb", "android"],
-                    "skip": ["webpage", "configs"]
-                },
-                "instagram": {
-                    "check_formats": None
-                }
-            },
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-                "Accept-Language": "en-US,en;q=0.9"
+        # 1-Urinish: Cobalt API orqali blokirovkasiz yuklash
+        success = False
+        try:
+            success = download_via_cobalt(url, input_file)
+        except Exception as err:
+            logging.warning(f"Cobalt ishlamadi: {err}")
+
+        # 2-Urinish: Zaxira sifatida yt-dlp
+        if not success or not os.path.exists(input_file):
+            ydl_opts = {
+                "format": "best[ext=mp4]/best",
+                "outtmpl": input_file,
+                "quiet": True,
+                "no_warnings": True,
+                "ffmpeg_location": ffmpeg_exe
             }
-        }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        if not os.path.exists(input_file):
+            raise Exception("Videoni yuklab bo'lmadi.")
 
-        possible_files = [
-            os.path.join(work_dir, f) for f in os.listdir(work_dir)
-            if os.path.isfile(os.path.join(work_dir, f)) and f != "compressed.mp4"
-        ]
-        
-        if not possible_files:
-            raise Exception("Yuklangan video fayli topilmadi.")
-
-        input_file = max(possible_files, key=os.path.getsize)
         original_size = get_size_mb(input_file)
 
-        await status.edit_text(
-            f"✅ Video yuklandi ({original_size:.1f} MB).\n"
-            f"🔄 Hajmi kamaytirilmoqda..."
-        )
+        await status.edit_text(f"✅ Video yuklandi ({original_size:.1f} MB).\n🔄 Hajmi siqilmoqda...")
 
-        # Siqish jarayoni
         compress_video(input_file, output_file)
         compressed_size = get_size_mb(output_file)
 
@@ -235,7 +186,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.exception("BOT XATOSI")
-        error_text = str(e)[-1000:]
+        error_text = str(e)[-500:]
         try:
             await status.edit_text(f"❌ Xatolik yuz berdi:\n\n{error_text}")
         except Exception:
@@ -245,16 +196,11 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
 
-# ==========================================
-# MAIN
-# ==========================================
-
 def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN topilmadi! Railway Variables bo'limini tekshiring.")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
 
