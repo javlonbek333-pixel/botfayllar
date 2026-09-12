@@ -4,31 +4,30 @@ import os
 import re
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yt_dlp
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import (
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
 # =========================================================
 # SOZLAMALAR
 # =========================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "BU_YERGA_BOT_TOKENINGIZNI_YOZING")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-MAX_RESULTS = 10
-
-# Telegram bot uchun xavfsizroq limit
 MAX_FILE_SIZE_MB = 49
 
 
@@ -38,7 +37,7 @@ MAX_FILE_SIZE_MB = 49
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -53,34 +52,145 @@ dp = Dispatcher()
 
 
 # =========================================================
-# YOUTUBE QIDIRUV
+# QO'LLAB-QUVVATLANADIGAN SAYTLAR
 # =========================================================
 
-def search_youtube(query: str, limit: int = 10):
-    """
-    YouTube'dan qo'shiq/video qidiradi.
-    Yuklab olmaydi.
-    """
+SUPPORTED_DOMAINS = [
+    "youtube.com",
+    "youtu.be",
+    "youtube-nocookie.com",
 
-    ydl_opts = {
+    "instagram.com",
+
+    "tiktok.com",
+
+    "facebook.com",
+    "fb.watch",
+
+    "pinterest.com",
+    "pin.it",
+
+    "snapchat.com",
+
+    "likee.video",
+    "likee.com",
+
+    "threads.net",
+]
+
+
+# =========================================================
+# URL TEKSHIRISH
+# =========================================================
+
+def is_supported_url(url: str) -> bool:
+
+    try:
+        parsed = urlparse(url)
+
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        host = parsed.netloc.lower()
+
+        if host.startswith("www."):
+            host = host[4:]
+
+        for domain in SUPPORTED_DOMAINS:
+            if host == domain or host.endswith("." + domain):
+                return True
+
+        return False
+
+    except Exception:
+        return False
+
+
+# =========================================================
+# YOUTUBE URLMI?
+# =========================================================
+
+def is_youtube_url(url: str) -> bool:
+
+    try:
+        host = urlparse(url).netloc.lower()
+
+        return (
+            "youtube.com" in host
+            or "youtu.be" in host
+        )
+
+    except Exception:
+        return False
+
+
+# =========================================================
+# URLNI MATNDAN TOPISH
+# =========================================================
+
+def extract_url(text: str):
+
+    pattern = r"https?://[^\s]+"
+
+    match = re.search(pattern, text)
+
+    if not match:
+        return None
+
+    url = match.group(0)
+
+    # Oxiridagi belgilarni olib tashlash
+    url = url.rstrip(".,!?)]}>\"'")
+
+    return url
+
+
+# =========================================================
+# FAYL NOMINI TOZALASH
+# =========================================================
+
+def clean_filename(name: str) -> str:
+
+    name = re.sub(
+        r'[\\/*?:"<>|]',
+        "",
+        name
+    )
+
+    name = name.strip()
+
+    if not name:
+        name = "download"
+
+    return name[:100]
+
+
+# =========================================================
+# QIDIRUV
+# =========================================================
+
+def search_youtube(query: str):
+
+    options = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
         "skip_download": True,
     }
 
-    search_query = f"ytsearch{limit}:{query}"
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
+        with yt_dlp.YoutubeDL(options) as ydl:
+
             info = ydl.extract_info(
-                search_query,
+                f"ytsearch10:{query}",
                 download=False
             )
 
         results = []
 
         for item in info.get("entries", []):
+
             if not item:
                 continue
 
@@ -89,94 +199,239 @@ def search_youtube(query: str, limit: int = 10):
             if not video_id:
                 continue
 
-            title = item.get("title") or "Noma'lum"
-
-            duration = item.get("duration")
-
-            uploader = item.get("uploader") or ""
-
-            results.append(
-                {
-                    "id": video_id,
-                    "title": title,
-                    "duration": duration,
-                    "uploader": uploader,
-                }
-            )
+            results.append({
+                "id": video_id,
+                "title": item.get(
+                    "title",
+                    "Noma'lum"
+                ),
+                "duration": item.get(
+                    "duration"
+                ),
+            })
 
         return results
 
     except Exception as e:
-        logger.exception("YouTube qidiruv xatosi: %s", e)
+
+        logger.exception(
+            "YouTube search error: %s",
+            e
+        )
+
         return []
 
 
 # =========================================================
-# MATNNI TOZALASH
+# QIDIRUV TUGMALARI
 # =========================================================
 
-def clean_filename(name: str) -> str:
-    """
-    Fayl nomidagi Windows/Linux uchun xavfli belgilarni olib tashlaydi.
-    """
+def search_keyboard(results):
 
-    name = re.sub(r'[\\/*?:"<>|]', "", name)
-
-    name = name.strip()
-
-    if not name:
-        name = "audio"
-
-    return name[:100]
-
-
-# =========================================================
-# VAQT FORMAT
-# =========================================================
-
-def format_duration(seconds):
-    if not seconds:
-        return ""
-
-    try:
-        seconds = int(seconds)
-    except Exception:
-        return ""
-
-    minutes = seconds // 60
-    seconds = seconds % 60
-
-    return f"{minutes}:{seconds:02d}"
-
-
-# =========================================================
-# QIDIRUV NATIJALARINI TUGMA QILISH
-# =========================================================
-
-def make_results_keyboard(results):
-    builder = InlineKeyboardBuilder()
+    buttons = []
 
     for index, item in enumerate(results):
+
         title = item["title"]
 
-        if len(title) > 45:
+        if len(title) > 42:
             title = title[:42] + "..."
 
-        duration = format_duration(item.get("duration"))
+        duration = item.get("duration")
 
         if duration:
-            text = f"🎵 {index + 1}. {title} [{duration}]"
-        else:
-            text = f"🎵 {index + 1}. {title}"
 
-        builder.row(
+            try:
+
+                minutes = int(duration) // 60
+                seconds = int(duration) % 60
+
+                time_text = (
+                    f" [{minutes}:{seconds:02d}]"
+                )
+
+            except Exception:
+
+                time_text = ""
+
+        else:
+
+            time_text = ""
+
+        buttons.append([
             InlineKeyboardButton(
-                text=text,
-                callback_data=f"download:{item['id']}",
+                text=f"🎵 {index + 1}. {title}{time_text}",
+                callback_data=f"yt:{item['id']}"
             )
+        ])
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=buttons
+    )
+
+
+# =========================================================
+# YOUTUBE TANLASH
+# =========================================================
+
+def youtube_format_keyboard(video_id):
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎬 Video",
+                    callback_data=f"ytvideo:{video_id}"
+                ),
+                InlineKeyboardButton(
+                    text="🎵 MP3",
+                    callback_data=f"ytaudio:{video_id}"
+                )
+            ]
+        ]
+    )
+
+
+# =========================================================
+# DOWNLOAD FUNKSIYASI
+# =========================================================
+
+def download_media(
+    url: str,
+    mode: str = "video"
+):
+
+    unique_name = "%(id)s"
+
+    output = str(
+        DOWNLOAD_DIR / unique_name
+    )
+
+    # -----------------------------------------------------
+    # AUDIO
+    # -----------------------------------------------------
+
+    if mode == "audio":
+
+        options = {
+
+            "format": "bestaudio/best",
+
+            "outtmpl": output + ".%(ext)s",
+
+            "noplaylist": True,
+
+            "quiet": True,
+
+            "no_warnings": True,
+
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ],
+        }
+
+    # -----------------------------------------------------
+    # VIDEO
+    # -----------------------------------------------------
+
+    else:
+
+        options = {
+
+            # 720p gacha olish
+            "format":
+                "bestvideo[height<=720]+"
+                "bestaudio/"
+                "best[height<=720]/best",
+
+            "outtmpl": output + ".%(ext)s",
+
+            "merge_output_format": "mp4",
+
+            "noplaylist": True,
+
+            "quiet": True,
+
+            "no_warnings": True,
+
+        }
+
+    # -----------------------------------------------------
+    # DOWNLOAD
+    # -----------------------------------------------------
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+
+        info = ydl.extract_info(
+            url,
+            download=True
         )
 
-    return builder.as_markup()
+        title = info.get(
+            "title",
+            "download"
+        )
+
+        video_id = info.get(
+            "id"
+        )
+
+    # -----------------------------------------------------
+    # FAYLNI TOPISH
+    # -----------------------------------------------------
+
+    files = list(
+        DOWNLOAD_DIR.glob(
+            f"{video_id}.*"
+        )
+    )
+
+    # vaqtinchalik fayllarni chiqarib tashlash
+    files = [
+        f for f in files
+        if not f.name.endswith(".part")
+        and not f.name.endswith(".ytdl")
+    ]
+
+    if not files:
+
+        raise FileNotFoundError(
+            "Yuklangan fayl topilmadi"
+        )
+
+    # MP3 bo'lsa
+    if mode == "audio":
+
+        mp3_files = [
+            f for f in files
+            if f.suffix.lower() == ".mp3"
+        ]
+
+        if mp3_files:
+            file_path = mp3_files[0]
+
+        else:
+            file_path = files[0]
+
+    else:
+
+        # MP4 ni afzal ko'ramiz
+        mp4_files = [
+            f for f in files
+            if f.suffix.lower() == ".mp4"
+        ]
+
+        if mp4_files:
+            file_path = mp4_files[0]
+
+        else:
+            file_path = files[0]
+
+    return file_path, title
 
 
 # =========================================================
@@ -187,158 +442,195 @@ def make_results_keyboard(results):
 async def start_handler(message: Message):
 
     text = (
-        "🎵 <b>YouTube MP3 bot</b>\n\n"
-        "Qo'shiq nomi yoki ijrochini yozing.\n\n"
-        "Masalan:\n"
-        "<code>Yulduz Usmanova Senga</code>\n"
-        "<code>Konsta Million</code>\n"
-        "<code>Imagine Dragons Believer</code>"
+        "👋 <b>Universal Downloader Bot</b>\n\n"
+
+        "Quyidagilardan yuklab olishingiz mumkin:\n\n"
+
+        "• Instagram — post, stories, reels\n"
+        "• YouTube — video, Shorts, audio\n"
+        "• TikTok — video\n"
+        "• Facebook — reels, video\n"
+        "• Pinterest — rasm, video\n"
+        "• Snapchat — rasm, video\n"
+        "• Likee — rasm, video\n"
+        "• Threads — rasm, video\n\n"
+
+        "🔗 Havolani yuboring."
     )
 
     await message.answer(
         text,
-        parse_mode="HTML",
+        parse_mode="HTML"
     )
 
 
 # =========================================================
-# QIDIRUV
+# LINK YUBORILGANDA
 # =========================================================
 
 @dp.message(F.text)
-async def search_handler(message: Message):
+async def message_handler(message: Message):
 
-    query = message.text.strip()
+    text = message.text.strip()
 
-    if not query:
+    # URL topish
+    url = extract_url(text)
+
+    # -----------------------------------------------------
+    # AGAR URL BO'LSA
+    # -----------------------------------------------------
+
+    if url:
+
+        if not is_supported_url(url):
+
+            await message.answer(
+                "❌ Bu sayt hozircha qo'llab-quvvatlanmaydi.\n\n"
+
+                "Qo'llab-quvvatlanadigan saytlar:\n"
+                "Instagram\n"
+                "YouTube\n"
+                "TikTok\n"
+                "Facebook\n"
+                "Pinterest\n"
+                "Snapchat\n"
+                "Likee\n"
+                "Threads"
+            )
+
+            return
+
+        # YouTube uchun Video / MP3 tanlash
+        if is_youtube_url(url):
+
+            await message.answer(
+                "🎬 <b>YouTube</b>\n\n"
+                "Qaysi format kerak?",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🎬 Video",
+                                callback_data=f"urlvideo:{url}"
+                            ),
+                            InlineKeyboardButton(
+                                text="🎵 MP3",
+                                callback_data=f"urlaudio:{url}"
+                            )
+                        ]
+                    ]
+                ),
+                parse_mode="HTML"
+            )
+
+            return
+
+        # Boshqa saytlar avtomatik video/rasm
+        await download_and_send(
+            message,
+            url,
+            "video"
+        )
+
         return
 
-    if query.startswith("/"):
-        return
+    # -----------------------------------------------------
+    # URL EMAS -> YOUTUBE QIDIRUV
+    # -----------------------------------------------------
 
     status = await message.answer(
         "🔎 YouTube'dan qidiryapman..."
     )
 
-    try:
-        results = await asyncio.to_thread(
-            search_youtube,
-            query,
-            MAX_RESULTS,
-        )
-
-        if not results:
-            await status.edit_text(
-                "❌ Hech qanday natija topilmadi.\n\n"
-                "Boshqa qo'shiq nomi bilan urinib ko'ring."
-            )
-            return
-
-        text = (
-            f"🎵 <b>{query}</b>\n\n"
-            "Kerakli qo'shiqni tanlang:"
-        )
-
-        keyboard = make_results_keyboard(results)
-
-        await status.edit_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-
-    except Exception as e:
-        logger.exception(e)
-
-        await status.edit_text(
-            "❌ Qidirishda xatolik yuz berdi."
-        )
-
-
-# =========================================================
-# MP3 YUKLASH
-# =========================================================
-
-def download_mp3(video_id: str):
-    """
-    YouTube videosini MP3 formatga o'tkazadi.
-    FFmpeg tizimdan ishlatiladi.
-    """
-
-    url = f"https://www.youtube.com/watch?v={video_id}"
-
-    output_template = str(
-        DOWNLOAD_DIR / "%(id)s.%(ext)s"
+    results = await asyncio.to_thread(
+        search_youtube,
+        text
     )
 
-    ydl_opts = {
-        "format": "bestaudio/best",
+    if not results:
 
-        "outtmpl": output_template,
-
-        "noplaylist": True,
-
-        "quiet": True,
-
-        "no_warnings": True,
-
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ],
-
-        "postprocessor_args": [
-            "-id3v2_version",
-            "3",
-        ],
-
-        "prefer_ffmpeg": True,
-
-        "writethumbnail": False,
-
-        "addmetadata": True,
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
-        info = ydl.extract_info(
-            url,
-            download=True,
+        await status.edit_text(
+            "❌ Hech qanday natija topilmadi."
         )
 
-        title = info.get("title") or "audio"
+        return
 
-        filename = DOWNLOAD_DIR / f"{video_id}.mp3"
-
-        if not filename.exists():
-            # Ba'zi holatlarda yt-dlp fayl nomini boshqacha yaratishi mumkin
-            possible_files = list(
-                DOWNLOAD_DIR.glob(f"{video_id}.*")
-            )
-
-            mp3_files = [
-                x for x in possible_files
-                if x.suffix.lower() == ".mp3"
-            ]
-
-            if mp3_files:
-                filename = mp3_files[0]
-
-        return filename, title
+    await status.edit_text(
+        "🎵 <b>Natijalar:</b>\n\n"
+        "Kerakli qo'shiqni tanlang:",
+        reply_markup=search_keyboard(results),
+        parse_mode="HTML"
+    )
 
 
 # =========================================================
-# MP3 TUGMASI BOSILGANDA
+# QIDIRUV NATIJASIDAN TANLASH
 # =========================================================
 
-@dp.callback_query(F.data.startswith("download:"))
-async def download_handler(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("yt:"))
+async def youtube_selected(
+    callback: CallbackQuery
+):
 
     video_id = callback.data.split(
-        "download:",
+        "yt:",
+        1
+    )[1]
+
+    await callback.answer()
+
+    await callback.message.answer(
+        "Qaysi format kerak?",
+        reply_markup=youtube_format_keyboard(
+            video_id
+        )
+    )
+
+
+# =========================================================
+# QIDIRUV -> VIDEO
+# =========================================================
+
+@dp.callback_query(
+    F.data.startswith("ytvideo:")
+)
+async def youtube_video_callback(
+    callback: CallbackQuery
+):
+
+    video_id = callback.data.split(
+        "ytvideo:",
+        1
+    )[1]
+
+    await callback.answer(
+        "Video yuklanmoqda..."
+    )
+
+    url = (
+        f"https://www.youtube.com/watch?v={video_id}"
+    )
+
+    await download_and_send(
+        callback.message,
+        url,
+        "video"
+    )
+
+
+# =========================================================
+# QIDIRUV -> AUDIO
+# =========================================================
+
+@dp.callback_query(
+    F.data.startswith("ytaudio:")
+)
+async def youtube_audio_callback(
+    callback: CallbackQuery
+):
+
+    video_id = callback.data.split(
+        "ytaudio:",
         1
     )[1]
 
@@ -346,154 +638,239 @@ async def download_handler(callback: CallbackQuery):
         "MP3 tayyorlanmoqda..."
     )
 
-    status_message = None
+    url = (
+        f"https://www.youtube.com/watch?v={video_id}"
+    )
 
-    try:
-
-        status_message = await callback.message.answer(
-            "⏳ <b>MP3 tayyorlanmoqda...</b>\n\n"
-            "Biroz kuting.",
-            parse_mode="HTML",
-        )
-
-        # Eski faylni tekshirish
-        existing_file = DOWNLOAD_DIR / f"{video_id}.mp3"
-
-        if existing_file.exists():
-
-            filename = existing_file
-
-            title = video_id
-
-        else:
-
-            filename, title = await asyncio.to_thread(
-                download_mp3,
-                video_id,
-            )
-
-        # Fayl mavjudligini tekshirish
-        if not filename.exists():
-
-            await status_message.edit_text(
-                "❌ MP3 fayli yaratilmadi."
-            )
-
-            return
-
-        # Fayl hajmi
-        file_size_mb = (
-            filename.stat().st_size /
-            1024 /
-            1024
-        )
-
-        logger.info(
-            "MP3: %s | %.2f MB",
-            filename,
-            file_size_mb,
-        )
-
-        # Telegram limitini tekshirish
-        if file_size_mb > MAX_FILE_SIZE_MB:
-
-            await status_message.edit_text(
-                "❌ Fayl juda katta.\n\n"
-                f"Fayl hajmi: {file_size_mb:.1f} MB\n"
-                f"Limit: {MAX_FILE_SIZE_MB} MB"
-            )
-
-            try:
-                filename.unlink()
-            except Exception:
-                pass
-
-            return
-
-        # Faylni Telegramga yuborish
-        from aiogram.types import FSInputFile
-
-        audio_file = FSInputFile(
-            filename,
-            filename=f"{clean_filename(title)}.mp3",
-        )
-
-        await callback.message.answer_audio(
-            audio=audio_file,
-            title=title[:64],
-            performer="YouTube",
-        )
-
-        await status_message.delete()
-
-        # Yuklangan faylni o'chirish
-        try:
-            filename.unlink()
-        except Exception as e:
-            logger.warning(
-                "Faylni o'chirishda xato: %s",
-                e,
-            )
-
-    except Exception as e:
-
-        logger.exception(
-            "MP3 yuklash xatosi: %s",
-            e,
-        )
-
-        if status_message:
-
-            try:
-                await status_message.edit_text(
-                    "❌ MP3 yuklashda xatolik yuz berdi.\n\n"
-                    "Boshqa qo'shiqni sinab ko'ring."
-                )
-            except Exception:
-                pass
-
-
-# =========================================================
-# BOTNI ISHGA TUSHIRISH
-# =========================================================
-
-async def main():
-
-    # FFmpeg mavjudligini tekshirish
-    ffmpeg_path = shutil.which("ffmpeg")
-
-    if ffmpeg_path:
-        logger.info(
-            "FFmpeg topildi: %s",
-            ffmpeg_path,
-        )
-    else:
-        logger.error(
-            "FFmpeg topilmadi! "
-            "MP3 konvertatsiya ishlamaydi."
-        )
-
-    if not BOT_TOKEN or BOT_TOKEN == "BU_YERGA_BOT_TOKENINGIZNI_YOZING":
-        raise RuntimeError(
-            "BOT_TOKEN kiritilmagan!"
-        )
-
-    logger.info("Bot ishga tushmoqda...")
-
-    await dp.start_polling(
-        bot,
-        allowed_updates=dp.resolve_used_update_types(),
+    await download_and_send(
+        callback.message,
+        url,
+        "audio"
     )
 
 
 # =========================================================
-# RUN
+# URL -> VIDEO
 # =========================================================
+
+@dp.callback_query(
+    F.data.startswith("urlvideo:")
+)
+async def url_video_callback(
+    callback: CallbackQuery
+):
+
+    url = callback.data.split(
+        "urlvideo:",
+        1
+    )[1]
+
+    await callback.answer(
+        "Video yuklanmoqda..."
+    )
+
+    await download_and_send(
+        callback.message,
+        url,
+        "video"
+    )
+
+
+# =========================================================
+# URL -> AUDIO
+# =========================================================
+
+@dp.callback_query(
+    F.data.startswith("urlaudio:")
+)
+async def url_audio_callback(
+    callback: CallbackQuery
+):
+
+    url = callback.data.split(
+        "urlaudio:",
+        1
+    )[1]
+
+    await callback.answer(
+        "MP3 tayyorlanmoqda..."
+    )
+
+    await download_and_send(
+        callback.message,
+        url,
+        "audio"
+    )
+
+
+# =========================================================
+# YUKLASH VA TELEGRAMGA YUBORISH
+# =========================================================
+
+async def download_and_send(
+    message: Message,
+    url: str,
+    mode: str
+):
+
+    status = await message.answer(
+        "⏳ <b>Yuklanmoqda...</b>\n\n"
+        "Biroz kuting.",
+        parse_mode="HTML"
+    )
+
+    file_path = None
+
+    try:
+
+        file_path, title = await asyncio.to_thread(
+            download_media,
+            url,
+            mode
+        )
+
+        # -------------------------------------------------
+        # HAJMI
+        # -------------------------------------------------
+
+        size_mb = (
+            file_path.stat().st_size
+            / 1024
+            / 1024
+        )
+
+        logger.info(
+            "Downloaded: %s | %.2f MB",
+            file_path,
+            size_mb
+        )
+
+        if size_mb > MAX_FILE_SIZE_MB:
+
+            await status.edit_text(
+                "❌ Fayl juda katta.\n\n"
+                f"📦 Hajmi: {size_mb:.1f} MB\n"
+                f"📏 Limit: {MAX_FILE_SIZE_MB} MB"
+            )
+
+            return
+
+        # -------------------------------------------------
+        # AUDIO
+        # -------------------------------------------------
+
+        if mode == "audio":
+
+            audio = FSInputFile(
+                file_path,
+                filename=(
+                    clean_filename(title)
+                    + ".mp3"
+                )
+            )
+
+            await message.answer_audio(
+                audio=audio,
+                title=title[:64]
+            )
+
+        # -------------------------------------------------
+        # VIDEO
+        # -------------------------------------------------
+
+        else:
+
+            video = FSInputFile(
+                file_path,
+                filename=(
+                    clean_filename(title)
+                    + file_path.suffix
+                )
+            )
+
+            await message.answer_video(
+                video=video,
+                caption=title[:1024]
+            )
+
+        await status.delete()
+
+    except Exception as e:
+
+        logger.exception(
+            "Download error: %s",
+            e
+        )
+
+        try:
+
+            await status.edit_text(
+                "❌ Yuklab bo'lmadi.\n\n"
+                "Havola ishlamasligi, video "
+                "o'chirilgan yoki sayt vaqtincha "
+                "cheklov qo'ygan bo'lishi mumkin."
+            )
+
+        except Exception:
+            pass
+
+    finally:
+
+        # -------------------------------------------------
+        # FAYLNI O'CHIRISH
+        # -------------------------------------------------
+
+        if file_path and file_path.exists():
+
+            try:
+                file_path.unlink()
+
+            except Exception as e:
+
+                logger.warning(
+                    "Fayl o'chirilmadi: %s",
+                    e
+                )
+
+
+# =========================================================
+# START BOT
+# =========================================================
+
+async def main():
+
+    if not BOT_TOKEN:
+
+        raise RuntimeError(
+            "BOT_TOKEN Railway Variables'da "
+            "kiritilmagan!"
+        )
+
+    ffmpeg = shutil.which("ffmpeg")
+
+    if not ffmpeg:
+
+        logger.error(
+            "FFmpeg topilmadi!"
+        )
+
+    else:
+
+        logger.info(
+            "FFmpeg: %s",
+            ffmpeg
+        )
+
+    logger.info(
+        "Universal downloader bot ishga tushdi."
+    )
+
+    await dp.start_polling(
+        bot,
+        allowed_updates=dp.resolve_used_update_types()
+    )
+
 
 if __name__ == "__main__":
 
-    try:
-        asyncio.run(main())
-
-    except KeyboardInterrupt:
-        logger.info("Bot to'xtatildi.")
+    asyncio.run(main())
