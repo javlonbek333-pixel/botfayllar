@@ -20,7 +20,7 @@ from telegram.ext import (
     filters,
 )
 
-# FFmpeg ulanishi
+# FFmpeg va FFprobe yo'llarini sozlash
 static_ffmpeg.add_paths()
 ffmpeg_exe = "ffmpeg"
 ffprobe_exe = "ffprobe"
@@ -287,7 +287,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-    # QO'SHIQ NOMI YOKI IJROCHI BO'LSA (10 TA RO'YXAT)
+    # QO'SHIQ NOMI YOKI IJROCHI BO'LSA
     else:
         status = await update.message.reply_text("🔍 Qo'shiqlar qidirilmoqda...")
         try:
@@ -296,6 +296,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "quiet": True,
                 "default_search": "ytsearch10:",
                 "noplaylist": True,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios"]
+                    }
+                }
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(text, download=False)
@@ -309,8 +314,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 buttons = []
                 row1, row2 = [], []
 
-                # Context user_data ga natijalarni saqlash
-                context.user_data["search_results"] = {}
+                if "search_results" not in context.user_data:
+                    context.user_data["search_results"] = {}
 
                 for idx, entry in enumerate(entries[:10], start=1):
                     title = entry.get("title", "Noma'lum")
@@ -318,12 +323,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     url = entry.get("webpage_url")
 
                     msg_text += f"{idx}. {title} **{duration}**\n"
-                    context.user_data["search_results"][str(idx)] = {
+                    
+                    # Unikal ID berib saqlash
+                    song_id = f"{update.message.message_id}_{idx}"
+                    context.user_data["search_results"][song_id] = {
                         "url": url,
                         "title": title
                     }
 
-                    btn = InlineKeyboardButton(str(idx), callback_data=f"dl_song:{idx}")
+                    btn = InlineKeyboardButton(str(idx), callback_data=f"dl:{song_id}")
                     if idx <= 5:
                         row1.append(btn)
                     else:
@@ -333,7 +341,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if row2:
                     buttons.append(row2)
                 
-                # Bekor qilish tugmasi
                 buttons.append([InlineKeyboardButton("❌", callback_data="cancel_search")])
 
                 reply_markup = InlineKeyboardMarkup(buttons)
@@ -355,10 +362,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.delete()
         return
 
-    if query.data.startswith("dl_song:"):
-        song_idx = query.data.split(":")[1]
+    if query.data.startswith("dl:"):
+        song_id = query.data.split("dl:")[1]
         search_results = context.user_data.get("search_results", {})
-        song_data = search_results.get(song_idx)
+        song_data = search_results.get(song_id)
 
         if not song_data:
             await query.message.reply_text("❌ Qidiruv natijasi eskirgan. Qaytadan qidirib ko'ring.")
@@ -368,23 +375,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_id = str(uuid.uuid4())
         work_dir = os.path.join(DOWNLOAD_DIR, job_id)
         os.makedirs(work_dir, exist_ok=True)
-        audio_file = os.path.join(work_dir, "song.mp3")
+        out_template = os.path.join(work_dir, "song.%(ext)s")
 
         try:
             ydl_opts = {
                 "format": "bestaudio/best",
-                "outtmpl": audio_file,
+                "outtmpl": out_template,
                 "quiet": True,
+                "no_warnings": True,
                 "ffmpeg_location": ffmpeg_exe,
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
                 }],
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios"]
+                    }
+                }
             }
+
+            if os.path.exists("cookies.txt"):
+                ydl_opts["cookiefile"] = "cookies.txt"
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([song_data["url"]])
+
+            audio_file = os.path.join(work_dir, "song.mp3")
+
+            # MP3 konvertatsiya qilinmagan bo'lsa, mavjud har qanday audio faylni qidirish
+            if not os.path.exists(audio_file):
+                files = os.listdir(work_dir)
+                if files:
+                    audio_file = os.path.join(work_dir, files[0])
 
             if os.path.exists(audio_file):
                 with open(audio_file, "rb") as audio:
