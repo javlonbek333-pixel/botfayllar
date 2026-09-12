@@ -18,7 +18,12 @@ from telegram.ext import (
 )
 
 # FFmpeg va FFprobe fayllarini majburiy ro'yxatdan o'tkazish
-ffmpeg_exe, ffprobe_exe = static_ffmpeg.add_paths()
+import static_ffmpeg
+
+static_ffmpeg.add_paths()
+
+ffmpeg_exe = "ffmpeg"
+ffprobe_exe = "ffprobe"
 
 # ==========================================
 # SOZLAMALAR
