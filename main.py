@@ -37,13 +37,8 @@ logging.basicConfig(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Assalomu alaykum!\n\n"
-        "🎬 Instagram va YouTube havolasini yuboring, men videoni yuklab va siqib beraman."
+        "🎬 Instagram va YouTube havolasini yuboring, men videoni yuklab beraman."
     )
-
-def get_size_mb(filename):
-    if not os.path.exists(filename):
-        return 0
-    return os.path.getsize(filename) / (1024 * 1024)
 
 def get_duration(filename):
     command = [
@@ -136,14 +131,14 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await status.edit_text("⬇️ Video yuklanmoqda...")
 
-        # 1-Urinish: Cobalt API orqali blokirovkasiz yuklash
+        # 1-Urinish: Cobalt API
         success = False
         try:
             success = download_via_cobalt(url, input_file)
         except Exception as err:
             logging.warning(f"Cobalt ishlamadi: {err}")
 
-        # 2-Urinish: Zaxira sifatida yt-dlp
+        # 2-Urinish: yt-dlp
         if not success or not os.path.exists(input_file):
             ydl_opts = {
                 "format": "best[ext=mp4]/best",
@@ -158,27 +153,18 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not os.path.exists(input_file):
             raise Exception("Videoni yuklab bo'lmadi.")
 
-        original_size = get_size_mb(input_file)
-
-        await status.edit_text(f"✅ Video yuklandi ({original_size:.1f} MB).\n🔄 Hajmi siqilmoqda...")
+        await status.edit_text("🔄 Hajmi siqilmoqda...")
 
         compress_video(input_file, output_file)
-        compressed_size = get_size_mb(output_file)
 
-        final_file = output_file if (compressed_size > 0 and os.path.exists(output_file)) else input_file
-        final_size = compressed_size if final_file == output_file else original_size
+        final_file = output_file if os.path.exists(output_file) else input_file
 
         await status.edit_text("📤 Video Telegramga yuborilmoqda...")
 
         with open(final_file, "rb") as video:
             await update.message.reply_video(
                 video=video,
-                caption=(
-                    f"🎬 Video tayyor!\n"
-                    f"📦 Asl hajm: {original_size:.1f} MB\n"
-                    f"📉 Siqilgan hajm: {final_size:.1f} MB\n"
-                    f"✅ Sifat: 480p"
-                ),
+                caption="@yuklatgbot orqali yuklab olindi",
                 supports_streaming=True
             )
 
