@@ -94,12 +94,10 @@ def compress_video(input_file, output_file):
     if duration <= 0:
         duration = 60
 
-    # Bitrate hisoblash (35 MB nishon bo'yicha)
     target_bits = TARGET_SIZE_MB * 8 * 1024 * 1024
     audio_bitrate = 128000  # 128 kbps audio
     video_bitrate = int((target_bits / duration) - audio_bitrate)
 
-    # Minimum 600 kbps chegarasi (video juda xiralashib ketmasligi uchun)
     if video_bitrate < 600000:
         video_bitrate = 600000
     if video_bitrate > 3000000:
@@ -109,11 +107,10 @@ def compress_video(input_file, output_file):
         ffmpeg_exe,
         "-y",
         "-i", input_file,
-        # Sifat va hajm mutanosibligi uchun 480p
         "-vf", "scale=-2:480",
         "-c:v", "libx264",
         "-b:v", str(video_bitrate),
-        "-crf", "23",  # Oltin o'rtaliq darajasi
+        "-crf", "23",
         "-preset", "fast",
         "-c:a", "aac",
         "-b:a", "128k",
@@ -172,12 +169,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.edit_text("⬇️ Video yuklanmoqda...")
 
         ydl_opts = {
-            "format": (
-                "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/"
-                "best[height<=720][ext=mp4]/"
-                "best[height<=720]/"
-                "best"
-            ),
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "outtmpl": os.path.join(work_dir, "original.%(ext)s"),
             "merge_output_format": "mp4",
             "noplaylist": True,
@@ -188,16 +180,19 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "youtube": {
                     "player_client": ["ios", "mweb", "android"],
                     "skip": ["webpage", "configs"]
+                },
+                "instagram": {
+                    "check_formats": None
                 }
             },
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                "Accept-Language": "en-US,en;q=0.9"
             }
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            prepared_file = ydl.prepare_filename(info)
 
         possible_files = [
             os.path.join(work_dir, f) for f in os.listdir(work_dir)
