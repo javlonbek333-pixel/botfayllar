@@ -5,7 +5,6 @@ import shutil
 import logging
 import requests
 
-import static_ffmpeg
 import yt_dlp
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -19,7 +18,6 @@ from telegram.ext import (
 )
 
 # FFmpeg yo'llarini sozlash
-static_ffmpeg.add_paths()
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DOWNLOAD_DIR = "/tmp/bot_downloads"
