@@ -43,6 +43,10 @@ def format_time(seconds):
     m, s = divmod(int(seconds), 60)
     return f"{m}:{s:02d}"
 
+def extract_video_id(url):
+    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
+    return match.group(1) if match else None
+
 # ==========================================
 # VIDEO SIQISH (480p - FONDA)
 # ==========================================
@@ -69,25 +73,93 @@ def compress_to_480p(input_path, output_path):
     return False
 
 # ==========================================
-# UNIVERSAL YUKLASH TIZIMI
+# MUSIQA YUKLASH (KAFOLATLANGAN MANBALAR)
 # ==========================================
 
-def download_media_cobalt(url, output_path, is_audio=False):
+def download_audio_guaranteed(video_url, output_path):
+    v_id = extract_video_id(video_url)
+    
+    # 1. Rapid/Y2Mate API Orqali (Server IP blokini aylanib o'tadi)
+    if v_id:
+        apis = [
+            f"https://api.vevioz.com/api/button/mp3/{v_id}",
+            f"https://ytstream-download-youtube-videos.p.rapidapi.com/dl?id={v_id}"
+        ]
+        
+        try:
+            # MP3 Converter API
+            res = requests.get(f"https://api.mp3youtube.cc/v2/converter?url={video_url}", timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                d_link = data.get("url") or data.get("link")
+                if d_link:
+                    r = requests.get(d_link, stream=True, timeout=40)
+                    if r.status_code == 200:
+                        with open(output_path, "wb") as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                            return True
+        except Exception:
+            pass
+
+        # 2. Cobalt API Servislari
+        cobalt_instances = [
+            "https://api.cobalt.tools/api/json",
+            "https://cobalt-api.kwippy.com/api/json",
+            "https://co.wuk.sh/api/json"
+        ]
+        for instance in cobalt_instances:
+            try:
+                payload = {"url": video_url, "downloadMode": "audio", "audioFormat": "mp3"}
+                headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+                res = requests.post(instance, json=payload, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    d_url = res.json().get("url")
+                    if d_url:
+                        r = requests.get(d_url, stream=True, timeout=40)
+                        if r.status_code == 200:
+                            with open(output_path, "wb") as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                                return True
+            except Exception:
+                continue
+
+    # 3. Zaxira: yt-dlp iOS/Android Client bilan
+    try:
+        ydl_opts = {
+            "outtmpl": output_path,
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "format": "bestaudio/best",
+            "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+# ==========================================
+# VIDEO YUKLASH
+# ==========================================
+
+def download_video_guaranteed(url, output_path):
     cobalt_instances = [
         "https://api.cobalt.tools/api/json",
         "https://cobalt-api.kwippy.com/api/json",
-        "https://co.wuk.sh/api/json",
-        "https://cobalt.qtf.rs/api/json"
+        "https://co.wuk.sh/api/json"
     ]
     payload = {"url": url}
-    if is_audio:
-        payload.update({"downloadMode": "audio", "audioFormat": "mp3"})
-
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
     for instance in cobalt_instances:
         try:
@@ -105,21 +177,15 @@ def download_media_cobalt(url, output_path, is_audio=False):
         except Exception:
             continue
 
-    # Zaxira usul: yt-dlp Android client
     try:
         ydl_opts = {
             "outtmpl": output_path,
             "quiet": True,
             "no_warnings": True,
             "nocheckcertificate": True,
+            "format": "best[ext=mp4]/best",
             "extractor_args": {"youtube": {"player_client": ["android", "ios"]}}
         }
-        if is_audio:
-            ydl_opts.update({
-                "format": "bestaudio/best",
-                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
-            })
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
@@ -131,11 +197,10 @@ def download_media_cobalt(url, output_path, is_audio=False):
     return False
 
 # ==========================================
-# BARQAROR MUSIQA QIDIRUV (YT-DLP & PIPED)
+# QIDIRUV TIZIMI
 # ==========================================
 
 def search_youtube(query):
-    # 1-USUL: yt-dlp ichki qidiruvi
     try:
         ydl_opts = {
             "quiet": True,
@@ -157,35 +222,7 @@ def search_youtube(query):
                     })
                 return results
     except Exception as e:
-        logging.error(f"yt-dlp qidiruv xatosi: {e}")
-
-    # 2-USUL: Piped API (Zaxira)
-    piped_instances = [
-        "https://pipedapi.kavin.rocks",
-        "https://api.piped.privacydev.net",
-        "https://pipedapi.mha.fi"
-    ]
-    for instance in piped_instances:
-        try:
-            url = f"{instance}/search"
-            params = {"q": query, "filter": "music_songs"}
-            res = requests.get(url, params=params, timeout=5)
-            if res.status_code == 200:
-                items = res.json().get("items", [])
-                results = []
-                for item in items[:10]:
-                    v_id = item.get("url", "").replace("/watch?v=", "")
-                    results.append({
-                        "id": v_id,
-                        "title": item.get("title"),
-                        "duration": item.get("duration", 0),
-                        "url": f"https://www.youtube.com/watch?v={v_id}"
-                    })
-                if results:
-                    return results
-        except Exception:
-            continue
-
+        logging.error(f"Qidiruv xatosi: {e}")
     return []
 
 # ==========================================
@@ -205,7 +242,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         compressed_path = os.path.join(work_dir, "compressed.mp4")
 
         try:
-            success = download_media_cobalt(text, raw_path, is_audio=False)
+            success = download_video_guaranteed(text, raw_path)
 
             if success and os.path.exists(raw_path):
                 compressed = compress_to_480p(raw_path, compressed_path)
@@ -297,7 +334,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = os.path.join(work_dir, "song.mp3")
 
         try:
-            success = download_media_cobalt(song_data["url"], audio_file, is_audio=True)
+            success = download_audio_guaranteed(song_data["url"], audio_file)
 
             if success and os.path.exists(audio_file):
                 with open(audio_file, "rb") as audio:
