@@ -1,18 +1,25 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# FFmpeg va zaruriy tizim kutubxonalarini o'rnatamiz
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get install -y \
     ffmpeg \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# YouTube JavaScript challenge uchun Deno
+RUN curl -fsSL https://deno.land/install.sh | sh
+
+ENV PATH="/root/.deno/bin:${PATH}"
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY main.py .
 
 CMD ["python", "main.py"]
