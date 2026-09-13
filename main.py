@@ -44,7 +44,7 @@ def format_time(seconds):
     return f"{m}:{s:02d}"
 
 # ==========================================
-# VIDEO SIQISH (480p - SEZILARSIZ)
+# VIDEO SIQISH (480p - FONDA)
 # ==========================================
 
 def compress_to_480p(input_path, output_path):
@@ -69,7 +69,7 @@ def compress_to_480p(input_path, output_path):
     return False
 
 # ==========================================
-# UNIVERSAL YUKLASH (ISHLAYDIGAN API NATIVE)
+# UNIVERSAL YUKLASH TIZIMI
 # ==========================================
 
 def download_media_cobalt(url, output_path, is_audio=False):
@@ -105,7 +105,7 @@ def download_media_cobalt(url, output_path, is_audio=False):
         except Exception:
             continue
 
-    # Zaxira usul: yt-dlp
+    # Zaxira usul: yt-dlp Android client
     try:
         ydl_opts = {
             "outtmpl": output_path,
@@ -131,33 +131,61 @@ def download_media_cobalt(url, output_path, is_audio=False):
     return False
 
 # ==========================================
-# MUSIQA QIDIRISH
+# BARQAROR MUSIQA QIDIRUV (YT-DLP & PIPED)
 # ==========================================
 
 def search_youtube(query):
-    instances = [
-        "https://invidious.drgns.space",
-        "https://vid.puffyan.us",
-        "https://inv.riverside.rocks"
+    # 1-USUL: yt-dlp ichki qidiruvi
+    try:
+        ydl_opts = {
+            "quiet": True,
+            "extract_flat": True,
+            "skip_download": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch10:{query}", download=False)
+            results = []
+            if "entries" in info and info["entries"]:
+                for entry in info["entries"]:
+                    results.append({
+                        "id": entry.get("id"),
+                        "title": entry.get("title", "Musiqa"),
+                        "duration": entry.get("duration", 0),
+                        "url": f"https://www.youtube.com/watch?v={entry.get('id')}"
+                    })
+                return results
+    except Exception as e:
+        logging.error(f"yt-dlp qidiruv xatosi: {e}")
+
+    # 2-USUL: Piped API (Zaxira)
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://api.piped.privacydev.net",
+        "https://pipedapi.mha.fi"
     ]
-    for instance in instances:
+    for instance in piped_instances:
         try:
-            url = f"{instance}/api/v1/search"
-            params = {"q": query, "type": "video"}
+            url = f"{instance}/search"
+            params = {"q": query, "filter": "music_songs"}
             res = requests.get(url, params=params, timeout=5)
             if res.status_code == 200:
+                items = res.json().get("items", [])
                 results = []
-                for item in res.json()[:10]:
+                for item in items[:10]:
+                    v_id = item.get("url", "").replace("/watch?v=", "")
                     results.append({
-                        "id": item.get("videoId"),
+                        "id": v_id,
                         "title": item.get("title"),
-                        "duration": item.get("lengthSeconds", 0),
-                        "url": f"https://www.youtube.com/watch?v={item.get('videoId')}"
+                        "duration": item.get("duration", 0),
+                        "url": f"https://www.youtube.com/watch?v={v_id}"
                     })
                 if results:
                     return results
         except Exception:
             continue
+
     return []
 
 # ==========================================
