@@ -385,7 +385,7 @@ def search_youtube(query):
 
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios", "mweb"]
+                "player_client": ["android", "ios", "mweb", "tv"]
             }
         },
 
@@ -609,7 +609,7 @@ def download_video(
         # YouTube IP / Bot cheklovlarini aylanib o'tish
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios", "mweb"]
+                "player_client": ["android", "ios", "mweb", "tv"]
             }
         },
 
@@ -772,7 +772,7 @@ def download_audio(
         # YouTube IP / Bot cheklovlarini aylanib o'tish
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios", "mweb"]
+                "player_client": ["android", "ios", "mweb", "tv"]
             }
         },
 
@@ -925,8 +925,6 @@ async def send_downloaded_file(
     # =====================================================
 
     if mode == "audio":
-
-        from telegram import InputFile
 
         with open(
             file_path,
