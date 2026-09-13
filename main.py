@@ -383,6 +383,12 @@ def search_youtube(query):
 
         "nocheckcertificate": True,
 
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "mweb"]
+            }
+        },
+
     }
 
     try:
@@ -600,6 +606,13 @@ def download_video(
             "deno": {}
         },
 
+        # YouTube IP / Bot cheklovlarini aylanib o'tish
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "mweb"]
+            }
+        },
+
         "prefer_ffmpeg":
             True,
 
@@ -754,6 +767,13 @@ def download_audio(
         # YouTube JS challenge
         "js_runtimes": {
             "deno": {}
+        },
+
+        # YouTube IP / Bot cheklovlarini aylanib o'tish
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "mweb"]
+            }
         },
 
         "prefer_ffmpeg":
