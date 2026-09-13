@@ -43,12 +43,12 @@ def format_time(seconds):
     m, s = divmod(int(seconds), 60)
     return f"{m}:{s:02d}"
 
-def extract_video_id(url):
-    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
+def get_video_id(url):
+    match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
 # ==========================================
-# VIDEO SIQISH (480p - FONDA)
+# VIDEO SIQISH (480p)
 # ==========================================
 
 def compress_to_480p(input_path, output_path):
@@ -73,61 +73,38 @@ def compress_to_480p(input_path, output_path):
     return False
 
 # ==========================================
-# MUSIQA YUKLASH (KAFOLATLANGAN MANBALAR)
+# MP3 YUKLASH (RAILWAY IP BLOKINI AYLANIB O'TISH)
 # ==========================================
 
-def download_audio_guaranteed(video_url, output_path):
-    v_id = extract_video_id(video_url)
-    
-    # 1. Rapid/Y2Mate API Orqali (Server IP blokini aylanib o'tadi)
-    if v_id:
-        apis = [
-            f"https://api.vevioz.com/api/button/mp3/{v_id}",
-            f"https://ytstream-download-youtube-videos.p.rapidapi.com/dl?id={v_id}"
-        ]
-        
-        try:
-            # MP3 Converter API
-            res = requests.get(f"https://api.mp3youtube.cc/v2/converter?url={video_url}", timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                d_link = data.get("url") or data.get("link")
-                if d_link:
-                    r = requests.get(d_link, stream=True, timeout=40)
-                    if r.status_code == 200:
-                        with open(output_path, "wb") as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                            return True
-        except Exception:
-            pass
+def download_audio_direct(video_url, output_path):
+    v_id = get_video_id(video_url)
+    if not v_id:
+        return False
 
-        # 2. Cobalt API Servislari
-        cobalt_instances = [
-            "https://api.cobalt.tools/api/json",
-            "https://cobalt-api.kwippy.com/api/json",
-            "https://co.wuk.sh/api/json"
-        ]
-        for instance in cobalt_instances:
-            try:
-                payload = {"url": video_url, "downloadMode": "audio", "audioFormat": "mp3"}
-                headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-                res = requests.post(instance, json=payload, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    d_url = res.json().get("url")
-                    if d_url:
-                        r = requests.get(d_url, stream=True, timeout=40)
-                        if r.status_code == 200:
-                            with open(output_path, "wb") as f:
-                                for chunk in r.iter_content(chunk_size=8192):
-                                    f.write(chunk)
-                            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                                return True
-            except Exception:
-                continue
+    # Rapid Converters & API Proxies (Railway IP-sidan qat'i nazar ishlaydi)
+    proxy_apis = [
+        f"https://api.vevioz.com/api/button/mp3/{v_id}",
+        f"https://y2mate.nu/api/v1/download?id={v_id}"
+    ]
 
-    # 3. Zaxira: yt-dlp iOS/Android Client bilan
+    # 1-USUL: Direct Converter API
+    try:
+        api_url = f"https://api.i-scraped.com/yt/mp3?id={v_id}"
+        res = requests.get(api_url, timeout=10)
+        if res.status_code == 200:
+            download_link = res.json().get("link")
+            if download_link:
+                r = requests.get(download_link, stream=True, timeout=40)
+                if r.status_code == 200:
+                    with open(output_path, "wb") as f:
+                        for chunk in r.iter_content(8192):
+                            f.write(chunk)
+                    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                        return True
+    except Exception:
+        pass
+
+    # 2-USUL: Custom yt-dlp Bypass Headers
     try:
         ydl_opts = {
             "outtmpl": output_path,
@@ -135,8 +112,17 @@ def download_audio_guaranteed(video_url, output_path):
             "no_warnings": True,
             "nocheckcertificate": True,
             "format": "bestaudio/best",
-            "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}]
+            "source_address": "0.0.0.0",
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.5",
+            },
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192"
+            }]
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
@@ -152,31 +138,7 @@ def download_audio_guaranteed(video_url, output_path):
 # VIDEO YUKLASH
 # ==========================================
 
-def download_video_guaranteed(url, output_path):
-    cobalt_instances = [
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt-api.kwippy.com/api/json",
-        "https://co.wuk.sh/api/json"
-    ]
-    payload = {"url": url}
-    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-
-    for instance in cobalt_instances:
-        try:
-            res = requests.post(instance, json=payload, headers=headers, timeout=12)
-            if res.status_code == 200:
-                d_url = res.json().get("url")
-                if d_url:
-                    r = requests.get(d_url, stream=True, timeout=40)
-                    if r.status_code == 200:
-                        with open(output_path, "wb") as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                            return True
-        except Exception:
-            continue
-
+def download_video_direct(url, output_path):
     try:
         ydl_opts = {
             "outtmpl": output_path,
@@ -184,7 +146,9 @@ def download_video_guaranteed(url, output_path):
             "no_warnings": True,
             "nocheckcertificate": True,
             "format": "best[ext=mp4]/best",
-            "extractor_args": {"youtube": {"player_client": ["android", "ios"]}}
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
@@ -193,7 +157,6 @@ def download_video_guaranteed(url, output_path):
             return True
     except Exception:
         pass
-
     return False
 
 # ==========================================
@@ -242,7 +205,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         compressed_path = os.path.join(work_dir, "compressed.mp4")
 
         try:
-            success = download_video_guaranteed(text, raw_path)
+            success = download_video_direct(text, raw_path)
 
             if success and os.path.exists(raw_path):
                 compressed = compress_to_480p(raw_path, compressed_path)
@@ -334,7 +297,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = os.path.join(work_dir, "song.mp3")
 
         try:
-            success = download_audio_guaranteed(song_data["url"], audio_file)
+            success = download_audio_direct(song_data["url"], audio_file)
 
             if success and os.path.exists(audio_file):
                 with open(audio_file, "rb") as audio:
