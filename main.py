@@ -40,14 +40,13 @@ MAX_SEARCH_RESULTS = 10
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Cookie faylini xavfsiz va to'g'ri formatda yaratish
+# Cookie faylini xavfsiz va to'g'ri Netscape formatida yaratish
 def prepare_cookies():
     if not RAW_COOKIES:
         print("YOUTUBE_COOKIES Railway'da topilmadi!")
         return False
     try:
         content = RAW_COOKIES.strip()
-        # Netscape formatiga moslashtirish
         lines = content.splitlines()
         clean_lines = []
         for line in lines:
@@ -225,7 +224,7 @@ def get_base_ydl_opts():
         "js_runtimes": {"deno": {}},
         "extractor_args": {
             "youtube": {
-                "player_client": ["mweb", "android", "ios", "web_creator"]
+                "player_client": ["mweb", "android", "ios", "web"]
             }
         },
     }
@@ -297,7 +296,7 @@ def create_search_keyboard(results, context, message_id):
 
 
 # =========================================================
-# MEDIA YUKLASH
+# MEDIA YUKLASH (YANGILANGAN VA EGILUVCHAN FORMATLAR BILAN)
 # =========================================================
 
 def download_video(url, work_dir):
@@ -306,13 +305,14 @@ def download_video(url, work_dir):
 
     ydl_opts = get_base_ydl_opts()
     ydl_opts.update({
-        "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        # Formatlar uchun kengroq qoidalar (Fallback berilgan)
+        "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         "outtmpl": output_template,
         "merge_output_format": "mp4",
         "noplaylist": True,
         "prefer_ffmpeg": True,
-        "retries": 3,
-        "fragment_retries": 3,
+        "retries": 5,
+        "fragment_retries": 5,
         "continuedl": True,
         "overwrites": True,
     })
@@ -342,12 +342,13 @@ def download_audio(url, work_dir):
 
     ydl_opts = get_base_ydl_opts()
     ydl_opts.update({
+        # Audio uchun xavfsiz va keng formatlar zanjiri
         "format": "bestaudio/best",
         "outtmpl": output_template,
         "noplaylist": True,
         "prefer_ffmpeg": True,
-        "retries": 3,
-        "fragment_retries": 3,
+        "retries": 5,
+        "fragment_retries": 5,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
