@@ -13,5 +13,4 @@ COPY . .
 
 RUN mkdir -p /tmp/bot_downloads
 
-# Oxirgi qatorda bot.py o'rniga main.py deb yoziladi:
 CMD ["python", "main.py"]
