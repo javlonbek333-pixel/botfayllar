@@ -8,8 +8,6 @@ ENV PATH="/root/.deno/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 ENV FFMPEG_LOCATION=/usr/bin
 
-ENV YOUTUBE_POT_URL=http://127.0.0.1:4416
-
 WORKDIR /app
 
 RUN apt-get update && \
@@ -22,7 +20,7 @@ RUN apt-get update && \
     npm && \
     rm -rf /var/lib/apt/lists/*
 
-# Deno
+# YouTube EJS uchun Deno
 RUN curl -fsSL https://deno.land/install.sh | sh
 
 COPY requirements.txt .
