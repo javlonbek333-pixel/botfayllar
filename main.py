@@ -708,4 +708,662 @@ async def process_video(
 
         logger.exception("VIDEO/AUDIO ERROR")
 
-        try
+        try:
+            await status.edit_text(
+                "❌ Yuklashda xato:\n\n"
+                f"<code>{str(e)[:1500]}</code>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    finally:
+
+        shutil.rmtree(
+            work_dir,
+            ignore_errors=True
+        )
+
+
+# =========================================================
+# START
+# =========================================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    text = (
+        "👋 <b>Media yuklovchi bot</b>\n\n"
+
+        "🔗 Havolani yuboring.\n\n"
+
+        "🎵 <b>Qo'shiq qidirish:</b>\n"
+        "Ijrochi yoki qo'shiq nomini yozing.\n\n"
+
+        "🎙️ <b>Shazam:</b>\n"
+        "Audio yoki voice yuboring — qo'shiqni aniqlayman.\n\n"
+
+        "📌 YouTube uchun:\n"
+        "🎬 Video 480p\n"
+        "🎵 MP3 128 kbps"
+    )
+
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# TEXT MESSAGE
+# =========================================================
+
+async def handle_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not update.message or not update.message.text:
+        return
+
+    text = update.message.text.strip()
+
+    # URL bo'lsa
+    urls = URL_RE.findall(text)
+
+    if urls:
+
+        url = urls[0]
+
+        if is_supported_url(url):
+
+            if is_youtube(url):
+
+                context.user_data["youtube_url"] = url
+
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            "🎬 VIDEO 480p",
+                            callback_data="yt:video"
+                        ),
+                        InlineKeyboardButton(
+                            "🎵 MP3 128 kbps",
+                            callback_data="yt:mp3"
+                        ),
+                    ]
+                ])
+
+                await update.message.reply_text(
+                    "🎬 YouTube media:\n"
+                    "Kerakli formatni tanlang:",
+                    reply_markup=keyboard
+                )
+
+            else:
+
+                await process_video(
+                    update,
+                    context,
+                    url,
+                    audio_only=False
+                )
+
+            return
+
+    # Oddiy matn — qo'shiq qidirish
+    query = text
+
+    status = await update.message.reply_text(
+        "🔎 Qo'shiq qidirilmoqda..."
+    )
+
+    try:
+
+        youtube_results = await asyncio.to_thread(
+            youtube_search_sync,
+            query
+        )
+
+        google_results = await asyncio.to_thread(
+            google_search_sync,
+            query
+        )
+
+        # Asosiy 50 ta natija — YouTube.
+        # Google natijalari alohida saqlanadi.
+        results = youtube_results[:50]
+
+        if not results:
+
+            await status.edit_text(
+                "❌ Qo'shiq topilmadi."
+            )
+            return
+
+        user_id = update.effective_user.id
+
+        USER_SEARCH_DATA[user_id] = {
+            "results": results,
+            "google": google_results[:50],
+            "query": query,
+        }
+
+        await status.delete()
+
+        await update.message.reply_text(
+            search_text(0, len(results)),
+            parse_mode="HTML",
+            reply_markup=make_search_keyboard(
+                user_id,
+                0,
+                len(results)
+            )
+        )
+
+        # Google topilgan bo'lsa, qo'shimcha tugma
+        if google_results:
+
+            await update.message.reply_text(
+                "🌐 Google'da ham natijalar topildi.",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            "🌐 Google natijalarini ko'rish",
+                            callback_data="google:0"
+                        )
+                    ]
+                ])
+            )
+
+    except Exception as e:
+
+        logger.exception("SEARCH ERROR")
+
+        await status.edit_text(
+            "❌ Qidirishda xato:\n"
+            f"{str(e)[:1000]}"
+        )
+
+
+# =========================================================
+# VOICE / AUDIO → SHAZAM
+# =========================================================
+
+async def handle_audio(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    message = update.message
+
+    status = await message.reply_text(
+        "🎙️ Shazam aniqlayapti..."
+    )
+
+    work_dir = Path(
+        tempfile.mkdtemp(
+            prefix="shazam_",
+            dir=str(DOWNLOAD_DIR)
+        )
+    )
+
+    try:
+
+        if message.voice:
+
+            tg_file = await message.voice.get_file()
+
+            input_file = work_dir / "voice.ogg"
+
+            await tg_file.download_to_drive(
+                custom_path=str(input_file)
+            )
+
+        elif message.audio:
+
+            tg_file = await message.audio.get_file()
+
+            extension = ".mp3"
+
+            if message.audio.file_name:
+                extension = Path(
+                    message.audio.file_name
+                ).suffix or ".mp3"
+
+            input_file = work_dir / (
+                "audio" + extension
+            )
+
+            await tg_file.download_to_drive(
+                custom_path=str(input_file)
+            )
+
+        else:
+            await status.delete()
+            return
+
+        result = await recognize_shazam(
+            str(input_file)
+        )
+
+        if not result:
+
+            await status.edit_text(
+                "❌ Qo'shiq aniqlanmadi."
+            )
+
+            return
+
+        user_id = update.effective_user.id
+
+        USER_SEARCH_DATA[user_id] = {
+            "results": [],
+            "google": [],
+            "query": result["query"],
+            "shazam": result,
+        }
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "🎵 MP3 128 kbps",
+                    callback_data="shazam:download"
+                )
+            ]
+        ])
+
+        await status.edit_text(
+            "🎵 <b>Qo'shiq topildi!</b>\n\n"
+            f"👤 <b>{result['artist']}</b>\n"
+            f"🎵 <b>{result['title']}</b>",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+
+    except Exception as e:
+
+        logger.exception("SHAZAM ERROR")
+
+        await status.edit_text(
+            "❌ Shazam xatosi:\n"
+            f"{str(e)[:1000]}"
+        )
+
+    finally:
+
+        shutil.rmtree(
+            work_dir,
+            ignore_errors=True
+        )
+
+
+# =========================================================
+# CALLBACK
+# =========================================================
+
+async def callback_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    data = query.data
+
+    # -----------------------------------------
+    # YouTube VIDEO
+    # -----------------------------------------
+
+    if data == "yt:video":
+
+        url = context.user_data.get("youtube_url")
+
+        if not url:
+            await query.edit_message_text(
+                "❌ YouTube havola topilmadi."
+            )
+            return
+
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        await process_video(
+            update,
+            context,
+            url,
+            audio_only=False
+        )
+
+        return
+
+    # -----------------------------------------
+    # YouTube MP3
+    # -----------------------------------------
+
+    if data == "yt:mp3":
+
+        url = context.user_data.get("youtube_url")
+
+        if not url:
+            await query.edit_message_text(
+                "❌ YouTube havola topilmadi."
+            )
+            return
+
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        await process_video(
+            update,
+            context,
+            url,
+            audio_only=True
+        )
+
+        return
+
+    # -----------------------------------------
+    # PAGE
+    # -----------------------------------------
+
+    if data.startswith("page:"):
+
+        page_value = data.split(":")[1]
+
+        if page_value == "current":
+            return
+
+        page = int(page_value)
+
+        user_data = USER_SEARCH_DATA.get(user_id)
+
+        if not user_data:
+            await query.edit_message_text(
+                "❌ Qidiruv natijalari eskirgan."
+            )
+            return
+
+        results = user_data["results"]
+
+        await query.edit_message_text(
+            search_text(page, len(results)),
+            parse_mode="HTML",
+            reply_markup=make_search_keyboard(
+                user_id,
+                page,
+                len(results)
+            )
+        )
+
+        return
+
+    # -----------------------------------------
+    # SONG
+    # -----------------------------------------
+
+    if data.startswith("song:"):
+
+        index = int(data.split(":")[1])
+
+        user_data = USER_SEARCH_DATA.get(user_id)
+
+        if not user_data:
+            await query.edit_message_text(
+                "❌ Natijalar topilmadi."
+            )
+            return
+
+        results = user_data["results"]
+
+        if index >= len(results):
+            await query.edit_message_text(
+                "❌ Bu natija mavjud emas."
+            )
+            return
+
+        song = results[index]
+
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        await process_video(
+            update,
+            context,
+            song["url"],
+            audio_only=True
+        )
+
+        return
+
+    # -----------------------------------------
+    # SHAZAM MP3
+    # -----------------------------------------
+
+    if data == "shazam:download":
+
+        user_data = USER_SEARCH_DATA.get(user_id)
+
+        if not user_data:
+            await query.edit_message_text(
+                "❌ Shazam natijasi topilmadi."
+            )
+            return
+
+        shazam_result = user_data.get("shazam")
+
+        if not shazam_result:
+            await query.edit_message_text(
+                "❌ Shazam natijasi topilmadi."
+            )
+            return
+
+        search_query = shazam_result["query"]
+
+        try:
+            await query.edit_message_text(
+                "⏳ Qo'shiq YouTube'dan topilmoqda..."
+            )
+
+            results = await asyncio.to_thread(
+                youtube_search_sync,
+                search_query
+            )
+
+            if not results:
+                await query.edit_message_text(
+                    "❌ Qo'shiqni yuklash uchun "
+                    "YouTube'dan topa olmadim."
+                )
+                return
+
+            url = results[0]["url"]
+
+            await query.message.delete()
+
+            await process_video(
+                update,
+                context,
+                url,
+                audio_only=True
+            )
+
+        except Exception as e:
+
+            logger.exception("SHAZAM DOWNLOAD ERROR")
+
+            try:
+                await query.edit_message_text(
+                    f"❌ Xato:\n{str(e)[:1000]}"
+                )
+            except Exception:
+                pass
+
+        return
+
+    # -----------------------------------------
+    # GOOGLE
+    # -----------------------------------------
+
+    if data.startswith("google:"):
+
+        page = int(data.split(":")[1])
+
+        user_data = USER_SEARCH_DATA.get(user_id)
+
+        if not user_data:
+            await query.edit_message_text(
+                "❌ Google natijalari topilmadi."
+            )
+            return
+
+        results = user_data.get("google", [])
+
+        if not results:
+            await query.edit_message_text(
+                "❌ Google API sozlanmagan yoki "
+                "natija topilmadi."
+            )
+            return
+
+        start = page * 10
+        end = min(start + 10, len(results))
+
+        keyboard = []
+
+        for i in range(start, end):
+
+            item = results[i]
+
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🌐 {i + 1}. "
+                    + item["title"][:55],
+                    url=item["url"]
+                )
+            ])
+
+        nav = []
+
+        if page > 0:
+            nav.append(
+                InlineKeyboardButton(
+                    "⬅️",
+                    callback_data=f"google:{page - 1}"
+                )
+            )
+
+        nav.append(
+            InlineKeyboardButton(
+                f"{page + 1}/5",
+                callback_data="google:current"
+            )
+        )
+
+        if page < 4 and end < len(results):
+            nav.append(
+                InlineKeyboardButton(
+                    "➡️",
+                    callback_data=f"google:{page + 1}"
+                )
+            )
+
+        keyboard.append(nav)
+
+        await query.edit_message_text(
+            "🌐 <b>Google natijalari</b>\n\n"
+            f"{start + 1}-{end} / {len(results)}",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        return
+
+
+# =========================================================
+# ERROR HANDLER
+# =========================================================
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    logger.exception(
+        "Unhandled exception:",
+        exc_info=context.error
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    if not BOT_TOKEN:
+
+        raise RuntimeError(
+            "BOT_TOKEN Railway Variables'da yo'q."
+        )
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.VOICE | filters.AUDIO,
+            handle_audio
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_text
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            callback_handler
+        )
+    )
+
+    app.add_error_handler(
+        error_handler
+    )
+
+    logger.info(
+        "BOT ISHLAYAPTI..."
+    )
+
+    app.run_polling(
+        drop_pending_updates=True
+    )
+
+
+if __name__ == "__main__":
+    main()
