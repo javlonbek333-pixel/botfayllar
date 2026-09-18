@@ -1,6 +1,5 @@
 python-telegram-bot>=22,<23
 yt-dlp[default]
 yt-dlp-ejs
-bgutil-ytdlp-pot-provider
 shazamio
 requests
