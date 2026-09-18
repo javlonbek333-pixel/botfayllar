@@ -1145,12 +1145,13 @@ async def recognize_audio(
 
             return
 
-        text = (
-            "🎵 Qo'shiq topildi!\n\n"
-            f"👤 Artist: {artist or 'Noma'lum'}\n"
-            f"🎶 Qo'shiq: {title}"
-        )
+        artist_name = artist or "Noma'lum"
 
+text = (
+    "🎵 Qo'shiq topildi!\n\n"
+    f"👤 Artist: {artist_name}\n"
+    f"🎶 Qo'shiq: {title}"
+)
         # YouTube orqali MP3
         search_text = f"{artist or ''} {title}"
 
