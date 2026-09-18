@@ -56,14 +56,10 @@ logger = logging.getLogger(__name__)
 def prepare_youtube_cookies():
     """
     Railway Variables:
-    
     YOUTUBE_COOKIES_B64 = base64 ko'rinishidagi cookies.txt
-    
     yoki
-    
     YOUTUBE_COOKIES = oddiy cookies.txt matni
     """
-
     b64 = os.getenv("YOUTUBE_COOKIES_B64")
     plain = os.getenv("YOUTUBE_COOKIES")
 
@@ -79,9 +75,7 @@ def prepare_youtube_cookies():
             data = plain
 
         cookie_file.write_text(data, encoding="utf-8")
-
         logger.info("YouTube cookies tayyor: %s", cookie_file)
-
         return str(cookie_file)
 
     except Exception as e:
@@ -131,28 +125,18 @@ def is_supported_url(url):
 # ============================================================
 
 def base_ydl_options(url=None):
-
     options = {
         "quiet": True,
         "no_warnings": True,
-
         "retries": 5,
         "fragment_retries": 5,
-
         "socket_timeout": 30,
-
         "concurrent_fragment_downloads": 8,
-
         "nocheckcertificate": True,
-
         "ffmpeg_location": FFMPEG_LOCATION,
-
         "max_filesize": MAX_SOURCE_SIZE,
-
         "noplaylist": True,
-
         "geo_bypass": True,
-
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "web"]
@@ -161,9 +145,7 @@ def base_ydl_options(url=None):
     }
 
     if url and is_youtube(url):
-
         cookie_file = prepare_youtube_cookies()
-
         if cookie_file:
             options["cookiefile"] = cookie_file
 
@@ -175,11 +157,8 @@ def base_ydl_options(url=None):
 # ============================================================
 
 def find_downloaded_file(folder: Path, extensions=None):
-
     files = []
-
     for p in folder.iterdir():
-
         if not p.is_file():
             continue
 
@@ -203,34 +182,22 @@ def find_downloaded_file(folder: Path, extensions=None):
 # ============================================================
 
 def download_video_sync(url, folder):
-
     options = base_ydl_options(url)
-
     options.update({
-        "format":
+        "format": (
             "bestvideo[height<=480]+bestaudio/"
             "best[height<=480]/"
-            "bestvideo+bestaudio/best",
-
-        "merge_output_format": "mp4",
-
-        "outtmpl": str(
-            folder / "%(id)s.%(ext)s"
+            "bestvideo+bestaudio/best"
         ),
-
+        "merge_output_format": "mp4",
+        "outtmpl": str(folder / "%(id)s.%(ext)s"),
         "postprocessors": [],
-
         "overwrites": True,
     })
 
     with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(
-            url,
-            download=True
-        )
-
+        info = ydl.extract_info(url, download=True)
         downloaded = ydl.prepare_filename(info)
-
         downloaded_path = Path(downloaded)
 
         if downloaded_path.exists():
@@ -247,16 +214,10 @@ def download_video_sync(url, folder):
 # ============================================================
 
 def download_audio_sync(url, folder):
-
     options = base_ydl_options(url)
-
     options.update({
         "format": "bestaudio/best",
-
-        "outtmpl": str(
-            folder / "%(id)s.%(ext)s"
-        ),
-
+        "outtmpl": str(folder / "%(id)s.%(ext)s"),
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -264,30 +225,18 @@ def download_audio_sync(url, folder):
                 "preferredquality": "128",
             }
         ],
-
         "overwrites": True,
     })
 
     with yt_dlp.YoutubeDL(options) as ydl:
-
-        info = ydl.extract_info(
-            url,
-            download=True
-        )
-
-        original = Path(
-            ydl.prepare_filename(info)
-        )
-
+        info = ydl.extract_info(url, download=True)
+        original = Path(ydl.prepare_filename(info))
         mp3 = original.with_suffix(".mp3")
 
         if mp3.exists():
             return mp3
 
-    return find_downloaded_file(
-        folder,
-        {".mp3"}
-    )
+    return find_downloaded_file(folder, {".mp3"})
 
 
 # ============================================================
@@ -295,9 +244,7 @@ def download_audio_sync(url, folder):
 # ============================================================
 
 def get_duration(file_path):
-
     try:
-
         result = subprocess.run(
             [
                 "ffprobe",
@@ -313,31 +260,22 @@ def get_duration(file_path):
             text=True,
             timeout=30,
         )
-
         return float(result.stdout.strip())
-
     except Exception:
         return 60.0
 
 
 # ============================================================
-# VIDEO 480P + 14 MB
+# VIDEO 480P + 14 MB COMPRESSION
 # ============================================================
 
 def compress_video_sync(input_file, output_file):
-
     duration = get_duration(input_file)
-
     if duration <= 0:
         duration = 60
 
-    # 14 MiB dan biroz pastroq target
-    target_bits = int(
-        (TARGET_SIZE * 8 * 0.92) / duration
-    )
-
+    target_bits = int((TARGET_SIZE * 8 * 0.92) / duration)
     audio_bitrate = 64000
-
     video_bitrate = target_bits - audio_bitrate
 
     if video_bitrate < 100000:
@@ -348,45 +286,20 @@ def compress_video_sync(input_file, output_file):
     command = [
         "ffmpeg",
         "-y",
-
-        "-i",
-        str(input_file),
-
-        "-vf",
-        "scale='min(480,iw)':'-2'",
-
-        "-c:v",
-        "libx264",
-
-        "-preset",
-        "ultrafast",
-
-        "-b:v",
-        f"{video_kbps}k",
-
-        "-maxrate",
-        f"{video_kbps}k",
-
-        "-bufsize",
-        f"{video_kbps * 2}k",
-
-        "-c:a",
-        "aac",
-
-        "-b:a",
-        "64k",
-
-        "-movflags",
-        "+faststart",
-
+        "-i", str(input_file),
+        "-vf", "scale='min(480,iw)':'-2'",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-b:v", f"{video_kbps}k",
+        "-maxrate", f"{video_kbps}k",
+        "-bufsize", f"{video_kbps * 2}k",
+        "-c:a", "aac",
+        "-b:a", "64k",
+        "-movflags", "+faststart",
         str(output_file),
     ]
 
-    logger.info(
-        "FFmpeg boshlanmoqda: %s kbps",
-        video_kbps
-    )
-
+    logger.info("FFmpeg boshlanmoqda: %s kbps", video_kbps)
     subprocess.run(
         command,
         check=True,
@@ -394,53 +307,23 @@ def compress_video_sync(input_file, output_file):
         stderr=subprocess.PIPE,
     )
 
-    # Agar hali ham 14 MiB dan katta bo'lsa,
-    # yana kuchliroq siqamiz.
     if output_file.stat().st_size > TARGET_SIZE:
-
-        logger.info(
-            "Video 14 MiB dan katta. Qayta siqilmoqda..."
-        )
-
-        smaller_kbps = max(
-            80,
-            int(video_kbps * 0.70)
-        )
+        logger.info("Video 14 MiB dan katta. Qayta siqilmoqda...")
+        smaller_kbps = max(80, int(video_kbps * 0.70))
 
         command2 = [
             "ffmpeg",
             "-y",
-
-            "-i",
-            str(input_file),
-
-            "-vf",
-            "scale='min(480,iw)':'-2'",
-
-            "-c:v",
-            "libx264",
-
-            "-preset",
-            "ultrafast",
-
-            "-b:v",
-            f"{smaller_kbps}k",
-
-            "-maxrate",
-            f"{smaller_kbps}k",
-
-            "-bufsize",
-            f"{smaller_kbps * 2}k",
-
-            "-c:a",
-            "aac",
-
-            "-b:a",
-            "48k",
-
-            "-movflags",
-            "+faststart",
-
+            "-i", str(input_file),
+            "-vf", "scale='min(480,iw)':'-2'",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-b:v", f"{smaller_kbps}k",
+            "-maxrate", f"{smaller_kbps}k",
+            "-bufsize", f"{smaller_kbps * 2}k",
+            "-c:a", "aac",
+            "-b:a", "48k",
+            "-movflags", "+faststart",
             str(output_file),
         ]
 
@@ -451,12 +334,8 @@ def compress_video_sync(input_file, output_file):
             stderr=subprocess.PIPE,
         )
 
-    # Oxirgi tekshiruv
     if output_file.stat().st_size > TARGET_SIZE:
-
-        raise RuntimeError(
-            "Video 14 MiB limitiga sigmadi."
-        )
+        raise RuntimeError("Video 14 MiB limitiga sigmadi.")
 
     return output_file
 
@@ -466,9 +345,7 @@ def compress_video_sync(input_file, output_file):
 # ============================================================
 
 def youtube_search_sync(query):
-
     options = base_ydl_options()
-
     options.update({
         "extract_flat": True,
         "skip_download": True,
@@ -476,62 +353,30 @@ def youtube_search_sync(query):
     })
 
     search_query = f"ytsearch50:{query}"
-
     results = []
 
     try:
-
         with yt_dlp.YoutubeDL(options) as ydl:
-
-            data = ydl.extract_info(
-                search_query,
-                download=False
-            )
-
-            entries = data.get(
-                "entries",
-                []
-            )
+            data = ydl.extract_info(search_query, download=False)
+            entries = data.get("entries", [])
 
             for item in entries:
-
                 if not item:
                     continue
 
-                title = item.get(
-                    "title",
-                    "Noma'lum"
-                )
-
-                url = item.get(
-                    "webpage_url"
-                ) or item.get(
-                    "url"
-                )
+                title = item.get("title", "Noma'lum")
+                url = item.get("webpage_url") or item.get("url")
 
                 if not url:
                     video_id = item.get("id")
-
                     if video_id:
-                        url = (
-                            "https://www.youtube.com/watch?v="
-                            + video_id
-                        )
+                        url = f"https://www.youtube.com/watch?v={video_id}"
 
                 if url:
-                    results.append(
-                        {
-                            "title": title,
-                            "url": url,
-                        }
-                    )
+                    results.append({"title": title, "url": url})
 
     except Exception as e:
-
-        logger.error(
-            "YouTube search xatosi: %s",
-            e
-        )
+        logger.error("YouTube search xatosi: %s", e)
 
     return results[:50]
 
@@ -541,20 +386,13 @@ def youtube_search_sync(query):
 # ============================================================
 
 def google_search_sync(query):
-
     if not GOOGLE_API_KEY or not GOOGLE_CX:
         return []
 
     results = []
-
     try:
-
         for start in [1, 11, 21, 31, 41]:
-
-            url = (
-                "https://www.googleapis.com/customsearch/v1"
-            )
-
+            url = "https://www.googleapis.com/customsearch/v1"
             params = {
                 "key": GOOGLE_API_KEY,
                 "cx": GOOGLE_CX,
@@ -563,39 +401,18 @@ def google_search_sync(query):
                 "num": 10,
             }
 
-            response = requests.get(
-                url,
-                params=params,
-                timeout=20,
-            )
-
+            response = requests.get(url, params=params, timeout=20)
             response.raise_for_status()
-
             data = response.json()
 
-            for item in data.get(
-                "items",
-                []
-            ):
-
-                results.append(
-                    {
-                        "title": item.get(
-                            "title",
-                            "Noma'lum"
-                        ),
-                        "url": item.get(
-                            "link"
-                        ),
-                    }
-                )
+            for item in data.get("items", []):
+                results.append({
+                    "title": item.get("title", "Noma'lum"),
+                    "url": item.get("link"),
+                })
 
     except Exception as e:
-
-        logger.error(
-            "Google search xatosi: %s",
-            e
-        )
+        logger.error("Google search xatosi: %s", e)
 
     return results[:50]
 
@@ -605,27 +422,13 @@ def google_search_sync(query):
 # ============================================================
 
 async def recognize_shazam(file_path):
-
     try:
-
         shazam = Shazam()
+        result = await shazam.recognize(str(file_path))
+        track = result.get("track", {})
 
-        result = await shazam.recognize(
-            str(file_path)
-        )
-
-        track = result.get(
-            "track",
-            {}
-        )
-
-        title = track.get(
-            "title"
-        )
-
-        artist = track.get(
-            "subtitle"
-        )
+        title = track.get("title")
+        artist = track.get("subtitle")
 
         if not title:
             return None
@@ -640,12 +443,7 @@ async def recognize_shazam(file_path):
         }
 
     except Exception as e:
-
-        logger.error(
-            "Shazam xatosi: %s",
-            e
-        )
-
+        logger.error("Shazam xatosi: %s", e)
         return None
 
 
@@ -654,220 +452,129 @@ async def recognize_shazam(file_path):
 # ============================================================
 
 USER_SEARCH_DATA = {}
-
-
 PAGE_SIZE = 10
 MAX_PAGES = 5
 
 
-def make_search_keyboard(
-    user_id,
-    page=0
-):
-
-    data = USER_SEARCH_DATA.get(
-        user_id,
-        {}
-    )
-
-    results = data.get(
-        "youtube",
-        []
-    )
+def make_search_keyboard(user_id, page=0):
+    data = USER_SEARCH_DATA.get(user_id, {})
+    results = data.get("youtube", [])
 
     start = page * PAGE_SIZE
     end = start + PAGE_SIZE
 
     buttons = []
-
-    for index in range(
-        start,
-        min(end, len(results))
-    ):
-
+    for index in range(start, min(end, len(results))):
         title = results[index]["title"]
-
         if len(title) > 55:
             title = title[:55] + "..."
 
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    f"🎵 {title}",
-                    callback_data=f"song:{index}"
-                )
-            ]
-        )
+        buttons.append([
+            InlineKeyboardButton(
+                f"🎵 {title}",
+                callback_data=f"song:{index}"
+            )
+        ])
 
     navigation = []
-
     if page > 0:
-
         navigation.append(
-            InlineKeyboardButton(
-                "⬅️ Oldingi",
-                callback_data=f"page:{page - 1}"
-            )
+            InlineKeyboardButton("⬅️ Oldingi", callback_data=f"page:{page - 1}")
         )
 
     if page < MAX_PAGES - 1 and end < len(results):
-
         navigation.append(
-            InlineKeyboardButton(
-                "Keyingi ➡️",
-                callback_data=f"page:{page + 1}"
-            )
+            InlineKeyboardButton("Keyingi ➡️", callback_data=f"page:{page + 1}")
         )
 
     if navigation:
         buttons.append(navigation)
 
-    # Google natijalari
-    google_results = data.get(
-        "google",
-        []
-    )
-
+    google_results = data.get("google", [])
     if google_results:
-
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    "🌐 Google natijalari",
-                    callback_data="google:current"
-                )
-            ]
-        )
+        buttons.append([
+            InlineKeyboardButton(
+                "🌐 Google natijalari",
+                callback_data="google:current"
+            )
+        ])
 
     return InlineKeyboardMarkup(buttons)
 
 
 # ============================================================
-# VIDEO / MP3 ISHLASH
+# VIDEO / MP3 ISHLASH (OPTIMALLASHTIRILGAN)
 # ============================================================
 
-async def process_video(
-    update,
-    context,
-    url,
-    mode="video"
-):
+async def process_video(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str, mode="video"):
+    """
+    Update va CallbackQuery xabarlariga to'g'ri moslashgan media yuklovchi.
+    """
+    target_msg = update.effective_message
+    work_dir = Path(tempfile.mkdtemp(dir=DOWNLOAD_DIR))
 
-    message = update.effective_message
-
-    work_dir = Path(
-        tempfile.mkdtemp(
-            dir=DOWNLOAD_DIR
-        )
-    )
-
+    status_msg = None
     try:
-
-        await message.edit_text(
-            "⏳ Yuklanmoqda..."
-        )
-
+        status_msg = await target_msg.reply_text("⏳ Yuklanmoqda...")
     except Exception:
-
-        try:
-            await message.reply_text(
-                "⏳ Yuklanmoqda..."
-            )
-        except Exception:
-            pass
+        pass
 
     try:
-
         if mode == "mp3":
-
-            mp3_file = await asyncio.to_thread(
-                download_audio_sync,
-                url,
-                work_dir
-            )
-
+            mp3_file = await asyncio.to_thread(download_audio_sync, url, work_dir)
             if not mp3_file or not mp3_file.exists():
-                raise RuntimeError(
-                    "MP3 fayl topilmadi."
+                raise RuntimeError("MP3 fayl topilmadi.")
+
+            with open(mp3_file, "rb") as audio_stream:
+                await target_msg.reply_audio(
+                    audio=InputFile(audio_stream, filename="audio.mp3"),
+                    title="MP3 128 kbps",
                 )
 
-            await message.reply_audio(
-                audio=InputFile(
-                    mp3_file.open("rb"),
-                    filename="audio.mp3"
-                ),
-                title="MP3 128 kbps",
-            )
-
+            if status_msg:
+                await status_msg.delete()
             return
 
-        # VIDEO
-        source_file = await asyncio.to_thread(
-            download_video_sync,
-            url,
-            work_dir
-        )
-
+        # VIDEO YUKLASH
+        source_file = await asyncio.to_thread(download_video_sync, url, work_dir)
         if not source_file or not source_file.exists():
-
-            raise RuntimeError(
-                "Video fayl topilmadi."
-            )
+            raise RuntimeError("Video fayl topilmadi.")
 
         final_file = work_dir / "final_480p.mp4"
-
-        await asyncio.to_thread(
-            compress_video_sync,
-            source_file,
-            final_file
-        )
+        await asyncio.to_thread(compress_video_sync, source_file, final_file)
 
         if final_file.stat().st_size > TARGET_SIZE:
+            raise RuntimeError("Yakuniy video 14 MiB dan katta.")
 
-            raise RuntimeError(
-                "Yakuniy video 14 MiB dan katta."
+        with open(final_file, "rb") as video_stream:
+            await target_msg.reply_video(
+                video=InputFile(video_stream, filename="video_480p.mp4"),
+                supports_streaming=True,
             )
 
-        await message.reply_video(
-            video=InputFile(
-                final_file.open("rb"),
-                filename="video_480p.mp4"
-            ),
-            supports_streaming=True,
-        )
+        if status_msg:
+            await status_msg.delete()
 
     except Exception as e:
-
-        logger.exception(
-            "Media processing xatosi"
-        )
-
-        await message.reply_text(
-            "❌ Xatolik yuz berdi:\n\n"
-            f"{str(e)[:1500]}"
-        )
+        logger.exception("Media processing xatosi")
+        err_text = f"❌ Xatolik yuz berdi:\n\n{str(e)[:1500]}"
+        if status_msg:
+            await status_msg.edit_text(err_text)
+        else:
+            await target_msg.reply_text(err_text)
 
     finally:
-
-        shutil.rmtree(
-            work_dir,
-            ignore_errors=True
-        )
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 # ============================================================
 # /START
 # ============================================================
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "👋 Assalomu alaykum!\n\n"
         "📥 Media yuklash uchun havolani yuboring.\n\n"
-
         "Qo‘llab-quvvatlanadi:\n"
         "▶️ YouTube\n"
         "📸 Instagram\n"
@@ -878,109 +585,49 @@ async def start(
         "👻 Snapchat\n"
         "❤️ Likee\n"
         "🧵 Threads\n\n"
-
         "🎵 Qo‘shiq qidirish:\n"
-        "Ijrochi nomi, qo‘shiq nomi yoki "
-        "matnidan parcha yuboring.\n\n"
-
-        "🎙️ Qo‘shiqni audio/voice ko‘rinishida "
-        "yuborsangiz, Shazam orqali aniqlanadi."
+        "Ijrochi nomi, qo‘shiq nomi yoki matnidan parcha yuboring.\n\n"
+        "🎙️ Qo‘shiqni audio/voice ko‘rinishida yuborsangiz, Shazam orqali aniqlanadi."
     )
-
-    await update.message.reply_text(
-        text
-    )
+    await update.message.reply_text(text)
 
 
 # ============================================================
 # MATN QABUL QILISH
 # ============================================================
 
-async def handle_text(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    text = (
-        update.message.text or ""
-    ).strip()
-
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
     if not text:
         return
 
-    # URL
+    # URL BO'LSA
     if is_supported_url(text):
-
         if is_youtube(text):
-
-            context.user_data[
-                "youtube_url"
-            ] = text
-
-            keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "🎬 VIDEO 480p",
-                            callback_data="yt:video"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "🎵 MP3 128 kbps",
-                            callback_data="yt:mp3"
-                        )
-                    ],
-                ]
-            )
+            context.user_data["youtube_url"] = text
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎬 VIDEO 480p", callback_data="yt:video")],
+                [InlineKeyboardButton("🎵 MP3 128 kbps", callback_data="yt:mp3")],
+            ])
 
             await update.message.reply_text(
-                "YouTube havolasi qabul qilindi.\n"
-                "Kerakli formatni tanlang:",
-                reply_markup=keyboard
+                "YouTube havolasi qabul qilindi.\nKerakli formatni tanlang:",
+                reply_markup=keyboard,
             )
-
         else:
-
-            await update.message.reply_text(
-                "⏳ Yuklanmoqda..."
-            )
-
-            # yuborilgan xabarni status sifatida ishlatish
-            # process_video yangi status yuborishi shart emas
-            await process_video(
-                update,
-                context,
-                text,
-                mode="video"
-            )
-
+            await process_video(update, context, text, mode="video")
         return
 
-    # ========================================================
     # QO'SHIQ QIDIRISH
-    # ========================================================
-
-    status = await update.message.reply_text(
-        "🔎 Qo‘shiq qidirilmoqda..."
-    )
+    status = await update.message.reply_text("🔎 Qo‘shiq qidirilmoqda...")
 
     try:
-
         youtube_results, google_results = await asyncio.gather(
-            asyncio.to_thread(
-                youtube_search_sync,
-                text
-            ),
-            asyncio.to_thread(
-                google_search_sync,
-                text
-            ),
+            asyncio.to_thread(youtube_search_sync, text),
+            asyncio.to_thread(google_search_sync, text),
         )
 
-        USER_SEARCH_DATA[
-            update.effective_user.id
-        ] = {
+        USER_SEARCH_DATA[update.effective_user.id] = {
             "query": text,
             "youtube": youtube_results,
             "google": google_results,
@@ -988,508 +635,233 @@ async def handle_text(
         }
 
         if not youtube_results:
-
-            await status.edit_text(
-                "❌ Qo‘shiq topilmadi."
-            )
-
+            await status.edit_text("❌ Qo‘shiq topilmadi.")
             return
 
         await status.edit_text(
-            f"🎵 {len(youtube_results)} ta natija topildi.\n"
-            "10 tadan ko‘rsatilmoqda:",
-            reply_markup=make_search_keyboard(
-                update.effective_user.id,
-                0
-            )
+            f"🎵 {len(youtube_results)} ta natija topildi.\n10 tadan ko‘rsatilmoqda:",
+            reply_markup=make_search_keyboard(update.effective_user.id, 0),
         )
 
     except Exception as e:
-
-        logger.exception(
-            "Search xatosi"
-        )
-
-        await status.edit_text(
-            "❌ Qidiruvda xatolik:\n"
-            f"{str(e)[:1000]}"
-        )
+        logger.exception("Search xatosi")
+        await status.edit_text(f"❌ Qidiruvda xatolik:\n{str(e)[:1000]}")
 
 
 # ============================================================
-# AUDIO / VOICE
+# AUDIO / VOICE (SHAZAM)
 # ============================================================
 
-async def handle_audio(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-
-    status = await message.reply_text(
-        "🎙️ Qo‘shiq aniqlanmoqda..."
-    )
-
-    work_dir = Path(
-        tempfile.mkdtemp(
-            dir=DOWNLOAD_DIR
-        )
-    )
+    status = await message.reply_text("🎙️ Qo‘shiq aniqlanmoqda...")
+    work_dir = Path(tempfile.mkdtemp(dir=DOWNLOAD_DIR))
 
     try:
-
         if message.voice:
-
-            telegram_file = await context.bot.get_file(
-                message.voice.file_id
-            )
-
-            input_file = (
-                work_dir / "voice.ogg"
-            )
-
-            await telegram_file.download_to_drive(
-                custom_path=str(input_file)
-            )
+            telegram_file = await context.bot.get_file(message.voice.file_id)
+            input_file = work_dir / "voice.ogg"
+            await telegram_file.download_to_drive(custom_path=str(input_file))
 
         elif message.audio:
-
-            telegram_file = await context.bot.get_file(
-                message.audio.file_id
-            )
-
-            ext = Path(
-                message.audio.file_name or "audio.mp3"
-            ).suffix or ".mp3"
-
-            input_file = (
-                work_dir / f"audio{ext}"
-            )
-
-            await telegram_file.download_to_drive(
-                custom_path=str(input_file)
-            )
-
+            telegram_file = await context.bot.get_file(message.audio.file_id)
+            ext = Path(message.audio.file_name or "audio.mp3").suffix or ".mp3"
+            input_file = work_dir / f"audio{ext}"
+            await telegram_file.download_to_drive(custom_path=str(input_file))
         else:
-
-            await status.edit_text(
-                "❌ Audio topilmadi."
-            )
-
+            await status.edit_text("❌ Audio topilmadi.")
             return
 
-        result = await recognize_shazam(
-            input_file
-        )
-
+        result = await recognize_shazam(input_file)
         if not result:
-
-            await status.edit_text(
-                "❌ Qo‘shiq aniqlanmadi."
-            )
-
+            await status.edit_text("❌ Qo‘shiq aniqlanmadi.")
             return
 
-        context.user_data[
-            "shazam_result"
-        ] = result
+        context.user_data["shazam_result"] = result
 
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🎵 MP3 128 kbps",
-                        callback_data="shazam:download"
-                    )
-                ]
-            ]
-        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎵 MP3 128 kbps", callback_data="shazam:download")]
+        ])
 
         await status.edit_text(
-            "🎵 Qo‘shiq aniqlandi!\n\n"
-            f"👤 Ijrochi: {result['artist']}\n"
-            f"🎵 Nomi: {result['title']}",
-            reply_markup=keyboard
+            f"🎵 Qo‘shiq aniqlandi!\n\n👤 Ijrochi: {result['artist']}\n🎵 Nomi: {result['title']}",
+            reply_markup=keyboard,
         )
 
     except Exception as e:
-
-        logger.exception(
-            "Audio/Shazam xatosi"
-        )
-
-        await status.edit_text(
-            "❌ Audio aniqlashda xatolik:\n"
-            f"{str(e)[:1000]}"
-        )
+        logger.exception("Audio/Shazam xatosi")
+        await status.edit_text(f"❌ Audio aniqlashda xatolik:\n{str(e)[:1000]}")
 
     finally:
-
-        shutil.rmtree(
-            work_dir,
-            ignore_errors=True
-        )
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 # ============================================================
-# CALLBACK
+# CALLBACK HANDLER
 # ============================================================
 
-async def callback_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-
     await query.answer()
 
     user_id = query.from_user.id
-
     data = query.data
 
-    # ========================================================
     # YOUTUBE VIDEO
-    # ========================================================
-
     if data == "yt:video":
-
-        url = context.user_data.get(
-            "youtube_url"
-        )
-
+        url = context.user_data.get("youtube_url")
         if not url:
-
-            await query.message.reply_text(
-                "❌ YouTube havolasi topilmadi."
-            )
-
+            await query.message.reply_text("❌ YouTube havolasi topilmadi.")
             return
 
-        await process_video(
-            update,
-            context,
-            url,
-            mode="video"
-        )
-
+        await process_video(update, context, url, mode="video")
         return
 
-    # ========================================================
     # YOUTUBE MP3
-    # ========================================================
-
     if data == "yt:mp3":
-
-        url = context.user_data.get(
-            "youtube_url"
-        )
-
+        url = context.user_data.get("youtube_url")
         if not url:
-
-            await query.message.reply_text(
-                "❌ YouTube havolasi topilmadi."
-            )
-
+            await query.message.reply_text("❌ YouTube havolasi topilmadi.")
             return
 
-        await process_video(
-            update,
-            context,
-            url,
-            mode="mp3"
-        )
-
+        await process_video(update, context, url, mode="mp3")
         return
 
-    # ========================================================
     # SAHIFA
-    # ========================================================
-
     if data.startswith("page:"):
-
         try:
-            page = int(
-                data.split(":")[1]
-            )
+            page = int(data.split(":")[1])
         except Exception:
             page = 0
 
-        search_data = USER_SEARCH_DATA.get(
-            user_id
-        )
-
+        search_data = USER_SEARCH_DATA.get(user_id)
         if not search_data:
-
-            await query.message.reply_text(
-                "❌ Qidiruv ma'lumoti eskirgan."
-            )
-
+            await query.message.reply_text("❌ Qidiruv ma'lumoti eskirgan.")
             return
 
         search_data["page"] = page
-
         await query.edit_message_reply_markup(
-            reply_markup=make_search_keyboard(
-                user_id,
-                page
-            )
+            reply_markup=make_search_keyboard(user_id, page)
         )
-
         return
 
-    # ========================================================
     # SONG
-    # ========================================================
-
     if data.startswith("song:"):
-
         try:
-            index = int(
-                data.split(":")[1]
-            )
+            index = int(data.split(":")[1])
         except Exception:
-
-            await query.message.reply_text(
-                "❌ Natija xatosi."
-            )
-
+            await query.message.reply_text("❌ Natija xatosi.")
             return
 
-        search_data = USER_SEARCH_DATA.get(
-            user_id
-        )
-
+        search_data = USER_SEARCH_DATA.get(user_id)
         if not search_data:
-
-            await query.message.reply_text(
-                "❌ Qidiruv ma'lumoti topilmadi."
-            )
-
+            await query.message.reply_text("❌ Qidiruv ma'lumoti topilmadi.")
             return
 
-        results = search_data.get(
-            "youtube",
-            []
-        )
-
+        results = search_data.get("youtube", [])
         if index < 0 or index >= len(results):
-
-            await query.message.reply_text(
-                "❌ Natija topilmadi."
-            )
-
+            await query.message.reply_text("❌ Natija topilmadi.")
             return
 
         selected = results[index]
-
-        await query.message.reply_text(
-            "⏳ 128 kbps MP3 tayyorlanmoqda..."
-        )
-
-        work_dir = Path(
-            tempfile.mkdtemp(
-                dir=DOWNLOAD_DIR
-            )
-        )
+        status_msg = await query.message.reply_text("⏳ 128 kbps MP3 tayyorlanmoqda...")
+        work_dir = Path(tempfile.mkdtemp(dir=DOWNLOAD_DIR))
 
         try:
-
             mp3_file = await asyncio.to_thread(
-                download_audio_sync,
-                selected["url"],
-                work_dir
+                download_audio_sync, selected["url"], work_dir
             )
 
             if not mp3_file or not mp3_file.exists():
+                raise RuntimeError("MP3 fayl yaratilmadi.")
 
-                raise RuntimeError(
-                    "MP3 fayl yaratilmadi."
+            with open(mp3_file, "rb") as stream:
+                await query.message.reply_audio(
+                    audio=InputFile(stream, filename="song.mp3"),
+                    title=selected["title"][:100],
                 )
 
-            await query.message.reply_audio(
-                audio=InputFile(
-                    mp3_file.open("rb"),
-                    filename="song.mp3"
-                ),
-                title=selected["title"][:100],
-            )
+            await status_msg.delete()
 
         except Exception as e:
-
-            logger.exception(
-                "Song download xatosi"
-            )
-
-            await query.message.reply_text(
-                "❌ MP3 yuklashda xatolik:\n"
-                f"{str(e)[:1200]}"
-            )
+            logger.exception("Song download xatosi")
+            await status_msg.edit_text(f"❌ MP3 yuklashda xatolik:\n{str(e)[:1200]}")
 
         finally:
-
-            shutil.rmtree(
-                work_dir,
-                ignore_errors=True
-            )
+            shutil.rmtree(work_dir, ignore_errors=True)
 
         return
 
-    # ========================================================
     # SHAZAM MP3
-    # ========================================================
-
     if data == "shazam:download":
-
-        result = context.user_data.get(
-            "shazam_result"
-        )
-
+        result = context.user_data.get("shazam_result")
         if not result:
-
-            await query.message.reply_text(
-                "❌ Shazam natijasi topilmadi."
-            )
-
+            await query.message.reply_text("❌ Shazam natijasi topilmadi.")
             return
 
-        search_query = result["query"]
-
-        await query.message.reply_text(
-            "⏳ Yuklanmoqda..."
-        )
-
-        work_dir = Path(
-            tempfile.mkdtemp(
-                dir=DOWNLOAD_DIR
-            )
-        )
+        status_msg = await query.message.reply_text("⏳ Yuklanmoqda...")
+        work_dir = Path(tempfile.mkdtemp(dir=DOWNLOAD_DIR))
 
         try:
-
             results = await asyncio.to_thread(
-                youtube_search_sync,
-                search_query
+                youtube_search_sync, result["query"]
             )
 
             if not results:
-
-                raise RuntimeError(
-                    "YouTube'dan qo‘shiq topilmadi."
-                )
+                raise RuntimeError("YouTube'dan qo‘shiq topilmadi.")
 
             mp3_file = await asyncio.to_thread(
-                download_audio_sync,
-                results[0]["url"],
-                work_dir
+                download_audio_sync, results[0]["url"], work_dir
             )
 
             if not mp3_file or not mp3_file.exists():
+                raise RuntimeError("MP3 fayl topilmadi.")
 
-                raise RuntimeError(
-                    "MP3 fayl topilmadi."
+            with open(mp3_file, "rb") as stream:
+                await query.message.reply_audio(
+                    audio=InputFile(stream, filename="shazam_song.mp3"),
+                    title=f"{result['artist']} - {result['title']}"[:100],
                 )
 
-            await query.message.reply_audio(
-                audio=InputFile(
-                    mp3_file.open("rb"),
-                    filename="shazam_song.mp3"
-                ),
-                title=(
-                    f"{result['artist']} - "
-                    f"{result['title']}"
-                )[:100],
-            )
+            await status_msg.delete()
 
         except Exception as e:
-
-            logger.exception(
-                "Shazam MP3 xatosi"
-            )
-
-            await query.message.reply_text(
-                "❌ MP3 yuklashda xatolik:\n"
-                f"{str(e)[:1200]}"
-            )
+            logger.exception("Shazam MP3 xatosi")
+            await status_msg.edit_text(f"❌ MP3 yuklashda xatolik:\n{str(e)[:1200]}")
 
         finally:
-
-            shutil.rmtree(
-                work_dir,
-                ignore_errors=True
-            )
+            shutil.rmtree(work_dir, ignore_errors=True)
 
         return
 
-    # ========================================================
     # GOOGLE
-    # ========================================================
-
     if data == "google:current":
-
-        search_data = USER_SEARCH_DATA.get(
-            user_id
-        )
-
+        search_data = USER_SEARCH_DATA.get(user_id)
         if not search_data:
-
-            await query.message.reply_text(
-                "❌ Google qidiruv ma'lumoti topilmadi."
-            )
-
+            await query.message.reply_text("❌ Google qidiruv ma'lumoti topilmadi.")
             return
 
-        google_results = search_data.get(
-            "google",
-            []
-        )
-
+        google_results = search_data.get("google", [])
         if not google_results:
-
-            await query.message.reply_text(
-                "❌ Google natijalari mavjud emas."
-            )
-
+            await query.message.reply_text("❌ Google natijalari mavjud emas.")
             return
 
         buttons = []
-
-        for i, item in enumerate(
-            google_results[:10]
-        ):
-
-            title = item.get(
-                "title",
-                "Natija"
-            )
-
+        for item in google_results[:10]:
+            title = item.get("title", "Natija")
             if len(title) > 55:
                 title = title[:55] + "..."
 
-            url = item.get(
-                "url"
-            )
-
+            url = item.get("url")
             if not url:
                 continue
 
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        f"🌐 {title}",
-                        url=url
-                    )
-                ]
-            )
+            buttons.append([InlineKeyboardButton(f"🌐 {title}", url=url)])
 
         await query.message.reply_text(
             "🌐 Google qidiruv natijalari:",
-            reply_markup=InlineKeyboardMarkup(
-                buttons
-            )
+            reply_markup=InlineKeyboardMarkup(buttons),
         )
-
         return
 
 
@@ -1497,15 +869,8 @@ async def callback_handler(
 # ERROR HANDLER
 # ============================================================
 
-async def error_handler(
-    update,
-    context
-):
-
-    logger.exception(
-        "Telegram bot xatosi:",
-        exc_info=context.error
-    )
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.exception("Telegram bot xatosi:", exc_info=context.error)
 
 
 # ============================================================
@@ -1513,101 +878,39 @@ async def error_handler(
 # ============================================================
 
 def main():
-
     if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN Railway Variables'da yo‘q!")
 
-        raise RuntimeError(
-            "BOT_TOKEN Railway Variables'da yo‘q!"
-        )
+    logger.info("FFmpeg location: %s", FFMPEG_LOCATION)
 
-    logger.info(
-        "FFmpeg location: %s",
-        FFMPEG_LOCATION
-    )
-
-    # FFmpeg tekshirish
     try:
-
         result = subprocess.run(
-            [
-                "ffmpeg",
-                "-version"
-            ],
+            ["ffmpeg", "-version"],
             capture_output=True,
             text=True,
             timeout=10,
         )
-
         logger.info(
             "FFmpeg ishlayapti: %s",
-            result.stdout.splitlines()[0]
-            if result.stdout
-            else "OK"
+            result.stdout.splitlines()[0] if result.stdout else "OK",
         )
-
     except Exception as e:
+        logger.error("FFmpeg topilmadi: %s", e)
 
-        logger.error(
-            "FFmpeg topilmadi: %s",
-            e
-        )
+    application = Application.builder().token(BOT_TOKEN).build()
 
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
-
-    # /start
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(callback_handler))
+    application.add_handler(MessageHandler(filters.VOICE, handle_audio))
+    application.add_handler(MessageHandler(filters.AUDIO, handle_audio))
     application.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
     )
 
-    # Callback
-    application.add_handler(
-        CallbackQueryHandler(
-            callback_handler
-        )
-    )
+    application.add_error_handler(error_handler)
 
-    # Voice
-    application.add_handler(
-        MessageHandler(
-            filters.VOICE,
-            handle_audio
-        )
-    )
-
-    # Audio
-    application.add_handler(
-        MessageHandler(
-            filters.AUDIO,
-            handle_audio
-        )
-    )
-
-    # Text
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_text
-        )
-    )
-
-    application.add_error_handler(
-        error_handler
-    )
-
-    logger.info(
-        "BOT ISHLADI"
-    )
-
-    application.run_polling(
-        drop_pending_updates=True
-    )
+    logger.info("BOT ISHLADI")
+    application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
