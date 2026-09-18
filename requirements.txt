@@ -1,2 +1,4 @@
 python-telegram-bot>=22,<23
 yt-dlp[default]
+shazamio
+requests
