@@ -3,10 +3,6 @@ import subprocess
 import yt_dlp
 
 def compress_video(input_path: str, output_path: str) -> bool:
-    """
-    Video o'lchamini o'zgartirmasdan, FFmpeg CRF parametri orqali
-    sifatini pasaytirib, hajmini qisqartiradi.
-    """
     try:
         command = [
             "ffmpeg", "-y",
@@ -25,7 +21,6 @@ def compress_video(input_path: str, output_path: str) -> bool:
         return False
 
 def download_video_from_url(url: str, output_path: str) -> bool:
-    """yt-dlp orqali Instagram, TikTok, YouTube va boshqa platformalardan video yuklaydi."""
     ydl_opts = {
         'outtmpl': output_path,
         'format': 'mp4/best',
@@ -41,7 +36,6 @@ def download_video_from_url(url: str, output_path: str) -> bool:
         return False
 
 def download_audio_by_title(query_text: str, output_audio_path: str) -> bool:
-    """Nomi va ijrochisi bo'yicha YouTube'dan audio qidiradi va yuklaydi."""
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_audio_path.replace('.mp3', ''),
