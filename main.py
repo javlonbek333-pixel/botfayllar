@@ -112,16 +112,20 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session_id = str(uuid.uuid4())[:8]
         out_mp3 = os.path.join(TEMP_DIR, f"song_{session_id}.mp3")
 
-        if download_audio_by_title(song_query, out_mp3):
-            actual_file = out_mp3 if os.path.exists(out_mp3) else f"{out_mp3.replace('.mp3', '')}.mp3"
-            if os.path.exists(actual_file):
-                with open(actual_file, 'rb') as audio_f:
-                    await query.message.reply_audio(audio=audio_f, title=song_query)
-                await info_msg.delete()
-                os.remove(actual_file)
-                return
-
-        await info_msg.edit_text("❌ Musiqani yuklab bo'lmadi.")
+        try:
+            if download_audio_by_title(song_query, out_mp3):
+                actual_file = out_mp3 if os.path.exists(out_mp3) else f"{out_mp3.replace('.mp3', '')}.mp3"
+                if os.path.exists(actual_file):
+                    with open(actual_file, 'rb') as audio_f:
+                        await query.message.reply_audio(audio=audio_f, title=song_query)
+                    await info_msg.delete()
+                    if os.path.exists(actual_file):
+                        os.remove(actual_file)
+                    return
+            await info_msg.edit_text("❌ Musiqani yuklab bo'lmadi.")
+        except Exception as e:
+            logging.error(f"Tugma bosilganda xatolik: {e}")
+            await info_msg.edit_text("❌ Yuklashda xatolik yuz berdi.")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
