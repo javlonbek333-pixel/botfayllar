@@ -11,7 +11,7 @@ from pathlib import Path
 import requests
 import yt_dlp
 from shazamio import Shazam
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, FSInputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ChatAction
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -21,7 +21,7 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 TARGET_MB_PER_MINUTE = 2.5
 AUDIO_KBPS = 64
-MIN_VIDEO_KBPS = 120
+MIN_VIDEO_KBPS = 160
 MAX_VIDEO_KBPS = 2500
 CAPTION = "@yuklatgbot orqali yuklab olindi"
 
@@ -133,11 +133,37 @@ def compress_video(source, output):
     return duration, width, height
 
 
+def extract_shazam_audio(source: Path, output: Path):
+    r = run_cmd([
+        "ffmpeg", "-y", "-i", str(source),
+        "-map", "0:a:0", "-vn",
+        "-t", "45",
+        "-ac", "1", "-ar", "44100",
+        "-c:a", "mp3", "-b:a", "128k",
+        str(output),
+    ], 300)
+    if r.returncode != 0 or not output.exists() or output.stat().st_size == 0:
+        raise RuntimeError(r.stderr[-2000:])
+
+
 def extract_mp3(source, output):
     r = run_cmd(["ffmpeg", "-y", "-i", str(source), "-map", "0:a:0", "-vn",
                  "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", str(output)], 600)
     if r.returncode != 0 or not output.exists() or output.stat().st_size == 0:
         raise RuntimeError(r.stderr[-2500:])
+
+
+async def shazam_track(source: Path):
+    try:
+        result = await Shazam().recognize(str(source))
+        track = result.get("track") or {}
+        title = track.get("title")
+        artist = track.get("subtitle") or track.get("artist")
+        if title:
+            return artist or "Noma'lum", title
+    except Exception:
+        logger.exception("Shazam recognize xatosi")
+    return None, None
 
 
 def google_search(query, limit=10):
@@ -182,18 +208,38 @@ async def process_url(update, context, url):
 
         original = work / f"original{downloaded.suffix.lower()}"
         shutil.copy2(downloaded, original)
+
+        artist = song = None
+        if has_audio(original):
+            shazam_audio = work / "shazam.mp3"
+            try:
+                await asyncio.to_thread(extract_shazam_audio, original, shazam_audio)
+                artist, song = await shazam_track(shazam_audio)
+            except Exception:
+                logger.exception("URL Shazam xatosi")
+
         encoded = work / "video_final.mp4"
         await asyncio.to_thread(compress_video, downloaded, encoded)
 
-        job_id = encoded.stem
-        context.bot_data.setdefault("media_jobs", {})[job_id] = {"audio_source": str(original), "dir": str(work)}
+        job_id = uuid.uuid4().hex[:16]
+        context.bot_data.setdefault("media_jobs", {})[job_id] = {
+            "audio_source": str(original), "dir": str(work),
+            "artist": artist, "song": song,
+        }
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("🎵 MP3 yuklash", callback_data=f"jobmp3|{job_id}")
         ]]) if has_audio(original) else None
 
+        caption = (f"🎵 {artist} — {song}\n\n{CAPTION}" if artist and song else CAPTION)
+
         await message.chat.send_action(ChatAction.UPLOAD_VIDEO)
-        await message.reply_video(video=FSInputFile(str(encoded), filename=f"{safe_name(title)}.mp4"),
-                                  caption=CAPTION, supports_streaming=True, reply_markup=keyboard)
+        with open(encoded, "rb") as video_fh:
+            await message.reply_video(
+                video=InputFile(video_fh, filename=f"{safe_name(title)}.mp4"),
+                caption=caption,
+                supports_streaming=True,
+                reply_markup=keyboard,
+            )
         asyncio.create_task(cleanup_job(context, job_id))
     except Exception as e:
         logger.exception("URL processing xatosi")
@@ -246,23 +292,42 @@ async def youtube_download(update, context, mode):
         if mode == "mp3":
             output = work / "audio.mp3"
             await asyncio.to_thread(extract_mp3, downloaded, output)
-            await q.message.reply_audio(audio=FSInputFile(str(output), filename=f"{safe_name(title)}.mp3"), caption=CAPTION)
+            await q.message.reply_audio(audio=InputFile(open(output, "rb"), filename=f"{safe_name(title)}.mp3"), caption=CAPTION)
             shutil.rmtree(work, ignore_errors=True)
             return
 
         original = work / f"original{downloaded.suffix.lower()}"
         shutil.copy2(downloaded, original)
+
+        artist = song = None
+        if has_audio(original):
+            shazam_audio = work / "shazam.mp3"
+            try:
+                await asyncio.to_thread(extract_shazam_audio, original, shazam_audio)
+                artist, song = await shazam_track(shazam_audio)
+            except Exception:
+                logger.exception("YouTube Shazam xatosi")
+
         encoded = work / "video_final.mp4"
         await asyncio.to_thread(compress_video, downloaded, encoded)
 
-        job_id = encoded.stem
-        context.bot_data.setdefault("media_jobs", {})[job_id] = {"audio_source": str(original), "dir": str(work)}
+        job_id = uuid.uuid4().hex[:16]
+        context.bot_data.setdefault("media_jobs", {})[job_id] = {
+            "audio_source": str(original), "dir": str(work),
+            "artist": artist, "song": song,
+        }
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("🎵 MP3 yuklash", callback_data=f"jobmp3|{job_id}")
         ]]) if has_audio(original) else None
 
-        await q.message.reply_video(video=FSInputFile(str(encoded), filename=f"{safe_name(title)}.mp4"),
-                                    caption=CAPTION, supports_streaming=True, reply_markup=keyboard)
+        caption = (f"🎵 {artist} — {song}\n\n{CAPTION}" if artist and song else CAPTION)
+        with open(encoded, "rb") as video_fh:
+            await q.message.reply_video(
+                video=InputFile(video_fh, filename=f"{safe_name(title)}.mp4"),
+                caption=caption,
+                supports_streaming=True,
+                reply_markup=keyboard,
+            )
         asyncio.create_task(cleanup_job(context, job_id))
     except Exception as e:
         logger.exception("YouTube xatosi")
@@ -289,7 +354,11 @@ async def media_callback(update, context):
                 raise RuntimeError("Original audio topilmadi.")
             output = work / "extracted.mp3"
             await asyncio.to_thread(extract_mp3, source, output)
-            await q.message.reply_audio(audio=FSInputFile(str(output), filename="audio.mp3"), caption=CAPTION)
+            artist = job.get("artist")
+            song = job.get("song")
+            filename = f"{safe_name(artist + ' - ' + song)}.mp3" if artist and song else "audio.mp3"
+            with open(output, "rb") as audio_fh:
+                await q.message.reply_audio(audio=InputFile(audio_fh, filename=filename), caption=CAPTION)
         except Exception as e:
             logger.exception("MP3 callback xatosi")
             await q.message.reply_text(f"❌ MP3 tayyorlashda xatolik:\n{str(e)[:1000]}")
@@ -313,10 +382,12 @@ async def recognize_audio(update, context):
         else:
             await message.reply_text("❌ Audio yoki video topilmadi."); return
 
-        result = await Shazam().recognize(str(source))
-        track = result.get("track") or {}
-        title = track.get("title")
-        artist = track.get("subtitle") or track.get("artist")
+        shazam_source = source
+        if message.video or message.video_note:
+            shazam_source = work / "shazam.mp3"
+            await asyncio.to_thread(extract_shazam_audio, source, shazam_source)
+
+        artist, title = await shazam_track(shazam_source)
         if not title:
             await message.reply_text("❌ Qo'shiq aniqlanmadi."); return
 
@@ -352,7 +423,7 @@ async def song_callback(update, context):
             downloaded = find_downloaded_file(work)
         output = work / "song.mp3"
         await asyncio.to_thread(extract_mp3, downloaded, output)
-        await q.message.reply_audio(audio=FSInputFile(str(output), filename="song.mp3"), caption=CAPTION)
+        await q.message.reply_audio(audio=InputFile(open(output, "rb"), filename="song.mp3"), caption=CAPTION)
     except Exception:
         logger.exception("Song download xatosi")
         await q.message.reply_text("❌ Qo'shiqni yuklab bo'lmadi.")
