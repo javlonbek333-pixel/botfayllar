@@ -20,6 +20,9 @@ DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/tmp/videola"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 TARGET_MB_PER_MINUTE = 2.5
+# Telegram Bot API odatiy serverida video yuborish limiti 50 MB.
+# 49 MiB qilib qo'yamiz, shunda 50 MB chegarasiga urilmaydi.
+TELEGRAM_MAX_VIDEO_BYTES = 49 * 1024 * 1024
 AUDIO_KBPS = 64
 MIN_VIDEO_KBPS = 160
 MAX_VIDEO_KBPS = 2500
@@ -116,6 +119,9 @@ def compress_video(source, output):
         raise RuntimeError("Video o'lchami aniqlanmadi.")
 
     target_bytes = max(300_000, duration / 60.0 * TARGET_MB_PER_MINUTE * 1024 * 1024)
+    # 14 MB cheklovi olib tashlandi. Qisqa videolar ~2.5 MB/min atrofida,
+    # uzun videolar esa Telegramning 49 MiB xavfsiz chegarasiga siqiladi.
+    target_bytes = min(target_bytes, int(TELEGRAM_MAX_VIDEO_BYTES * 0.97))
     total_kbps = int(target_bytes * 8 / duration / 1000)
     video_kbps = max(MIN_VIDEO_KBPS, min(MAX_VIDEO_KBPS, total_kbps - AUDIO_KBPS))
 
@@ -221,6 +227,9 @@ async def process_url(update, context, url):
         encoded = work / "video_final.mp4"
         await asyncio.to_thread(compress_video, downloaded, encoded)
 
+        if encoded.stat().st_size > TELEGRAM_MAX_VIDEO_BYTES:
+            raise RuntimeError("Tayyor video Telegramning 50 MB limitidan katta.")
+
         job_id = uuid.uuid4().hex[:16]
         context.bot_data.setdefault("media_jobs", {})[job_id] = {
             "audio_source": str(original), "dir": str(work),
@@ -310,6 +319,9 @@ async def youtube_download(update, context, mode):
 
         encoded = work / "video_final.mp4"
         await asyncio.to_thread(compress_video, downloaded, encoded)
+
+        if encoded.stat().st_size > TELEGRAM_MAX_VIDEO_BYTES:
+            raise RuntimeError("Tayyor video Telegramning 50 MB limitidan katta.")
 
         job_id = uuid.uuid4().hex[:16]
         context.bot_data.setdefault("media_jobs", {})[job_id] = {
