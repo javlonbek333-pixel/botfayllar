@@ -29,6 +29,7 @@ def recognize_music(audio_path: str) -> dict | None:
         'api_token': AUDD_API_KEY,
         'return': 'apple_music,spotify',
     }
+
     try:
         with open(audio_path, 'rb') as f:
             files = {'file': f}
@@ -37,7 +38,7 @@ def recognize_music(audio_path: str) -> dict | None:
             
         if result.get('status') == 'success' and result.get('result'):
             return result['result']
-    excepthttps://t.me/+yisBa23eY7lhYWQ6 Exception as e:
+    except Exception as e:
         print(f"Musiqa aniqlashda xatolik: {e}")
         
     return None
