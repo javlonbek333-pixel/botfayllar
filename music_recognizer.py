@@ -4,7 +4,6 @@ import subprocess
 from config import AUDD_API_KEY
 
 def extract_audio(video_path: str, output_audio_path: str) -> bool:
-    """FFmpeg orqali videodan MP3 audio ajratib oladi."""
     try:
         command = [
             "ffmpeg", "-y",
@@ -21,7 +20,6 @@ def extract_audio(video_path: str, output_audio_path: str) -> bool:
         return False
 
 def recognize_music(audio_path: str) -> dict | None:
-    """AudD API orqali audio fayldan musiqani aniqlaydi."""
     if not os.path.exists(audio_path):
         return None
 
@@ -29,7 +27,6 @@ def recognize_music(audio_path: str) -> dict | None:
         'api_token': AUDD_API_KEY,
         'return': 'apple_music,spotify',
     }
-
     try:
         with open(audio_path, 'rb') as f:
             files = {'file': f}
