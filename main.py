@@ -1,6 +1,7 @@
 import os
 import uuid
 import logging
+import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -15,12 +16,17 @@ from config import BOT_TOKEN, TEMP_DIR
 from music_recognizer import extract_audio, recognize_music
 from media_handler import compress_video, download_video_from_url, download_audio_by_title
 
+# Logging sozlamalari
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+# Sizning Telegram ID-ingiz
+ADMIN_ID = 7402211385
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
@@ -36,6 +42,46 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🕺 Rohatlaning!"
     )
     await update.message.reply_text(welcome_text)
+
+
+# --- TERMINAL BUYRUQLARINI BAJARISH HANDLERI (ADMIN SHELL) ---
+async def terminal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("⛔ Sizga terminaldan foydalanishga ruxsat berilmagan!")
+        return
+
+    command = " ".join(context.args)
+    if not command:
+        await update.message.reply_text("💡 Buyruqni kiriting. Masalan: `/exec pip list`", parse_mode="Markdown")
+        return
+
+    status_msg = await update.message.reply_text("⚙️ Buyruq bajarilmoqda...")
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        output = result.stdout or result.stderr
+        if not output:
+            output = "✅ Buyruq bajarildi (hech qanday natija qaytmadi)."
+
+        if len(output) > 4000:
+            output = output[:4000] + "\n... (natija juda uzun)"
+
+        await status_msg.edit_text(f"🖥 **Natija:**\n```\n{output}\n```", parse_mode="Markdown")
+
+    except subprocess.TimeoutExpired:
+        await status_msg.edit_text("⏱ Vaqt tugadi (60 soniyadan oshdi).")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Xatolik: {str(e)}")
+
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -101,6 +147,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(p):
                 os.remove(p)
 
+
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -127,15 +174,18 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Tugma bosilganda xatolik: {e}")
             await info_msg.edit_text("❌ Yuklashda xatolik yuz berdi.")
 
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("exec", terminal_command))
     app.add_handler(MessageHandler(filters.TEXT | filters.VIDEO | filters.VIDEO_NOTE, handle_media))
     app.add_handler(CallbackQueryHandler(handle_button))
 
     print("🚀 Bot muvaffaqiyatli ishga tushdi...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
