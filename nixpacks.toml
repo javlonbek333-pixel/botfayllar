@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "ffmpeg"]
-
-[phases.install]
-cmds = ["python3.11 -m pip install --no-cache-dir --force-reinstall -r requirements.txt"]
-
-[start]
-cmd = "python3.11 main.py"
