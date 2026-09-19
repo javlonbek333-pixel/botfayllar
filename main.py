@@ -22,7 +22,7 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 TARGET_MB_PER_MINUTE = 2.5
 # Telegram Bot API odatiy serverida video yuborish limiti 50 MB.
 # 49 MiB qilib qo'yamiz, shunda 50 MB chegarasiga urilmaydi.
-TELEGRAM_MAX_VIDEO_BYTES = 49 * 1024 * 1024
+TELEGRAM_MAX_VIDEO_BYTES = 48_000_000
 AUDIO_KBPS = 64
 MIN_VIDEO_KBPS = 160
 MAX_VIDEO_KBPS = 2500
@@ -118,18 +118,36 @@ def compress_video(source, output):
     if not width or not height:
         raise RuntimeError("Video o'lchami aniqlanmadi.")
 
-    target_bytes = max(300_000, duration / 60.0 * TARGET_MB_PER_MINUTE * 1024 * 1024)
-    # 14 MB cheklovi olib tashlandi. Qisqa videolar ~2.5 MB/min atrofida,
-    # uzun videolar esa Telegramning 49 MiB xavfsiz chegarasiga siqiladi.
-    target_bytes = min(target_bytes, int(TELEGRAM_MAX_VIDEO_BYTES * 0.97))
+    target_bytes = max(300_000, duration / 60.0 * TARGET_MB_PER_MINUTE * 1_000_000)
+    # 14 MB sun'iy cheklovi yo'q. Faqat Telegram upload uchun xavfsiz 48 MB.
+    target_bytes = min(target_bytes, int(TELEGRAM_MAX_VIDEO_BYTES * 0.96))
+    audio_exists = has_audio(source)
     total_kbps = int(target_bytes * 8 / duration / 1000)
-    video_kbps = max(MIN_VIDEO_KBPS, min(MAX_VIDEO_KBPS, total_kbps - AUDIO_KBPS))
+    video_kbps = total_kbps - AUDIO_KBPS if audio_exists else total_kbps
+    video_kbps = max(MIN_VIDEO_KBPS, min(MAX_VIDEO_KBPS, video_kbps))
 
-    cmd = ["ffmpeg", "-y", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
-           "-c:v", "libx264", "-preset", "veryfast", "-b:v", f"{video_kbps}k",
-           "-maxrate", f"{video_kbps}k", "-bufsize", f"{max(video_kbps * 2, 300)}k",
-           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", f"{AUDIO_KBPS}k",
-           "-movflags", "+faststart", "-f", "mp4", str(output)]
+    cmd = [
+        "ffmpeg", "-y", "-i", str(source),
+        "-map", "0:v:0",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-b:v", f"{video_kbps}k",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+    ]
+
+    # Audio bo'lmasa -b:a berilmaydi. Shu screenshotdagi FFmpeg warningni tuzatadi.
+    if audio_exists:
+        cmd += [
+            "-map", "0:a:0",
+            "-c:a", "aac",
+            "-b:a", f"{AUDIO_KBPS}k",
+            "-ac", "2",
+        ]
+    else:
+        cmd += ["-an"]
+
+    cmd += ["-f", "mp4", str(output)]
     r = run_cmd(cmd, max(600, int(duration * 10)))
     if r.returncode != 0 or not output.exists() or output.stat().st_size == 0:
         raise RuntimeError(r.stderr[-2500:])
