@@ -24,7 +24,7 @@ logging.basicConfig(
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Sizning Telegram ID-ingiz
+# Telegram ID-ingiz
 ADMIN_ID = 7402211385
 
 
