@@ -15,7 +15,6 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    FSInputFile,
 )
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -738,10 +737,7 @@ async def process_video(
                 ]
             ])
 
-        video_file = FSInputFile(
-            str(encoded),
-            filename="video.mp4"
-        )
+        video_file = str(encoded)
 
         await context.bot.send_video(
             chat_id=chat_id,
@@ -852,10 +848,7 @@ async def process_mp3(
             work,
         )
 
-        audio_file = FSInputFile(
-            str(mp3),
-            filename="audio.mp3"
-        )
+        audio_file = str(mp3)
 
         await context.bot.send_audio(
             chat_id=chat_id,
@@ -1145,13 +1138,12 @@ async def recognize_audio(
 
             return
 
-        artist_name = artist or "Noma'lum"
+        text = (
+            "🎵 Qo'shiq topildi!\n\n"
+            f"👤 Artist: {artist or "Noma'lum"}\n"
+            f"🎶 Qo'shiq: {title}"
+        )
 
-text = (
-    "🎵 Qo'shiq topildi!\n\n"
-    f"👤 Artist: {artist_name}\n"
-    f"🎶 Qo'shiq: {title}"
-)
         # YouTube orqali MP3
         search_text = f"{artist or ''} {title}"
 
@@ -1278,10 +1270,7 @@ async def song_callback(
             work,
         )
 
-        audio_file = FSInputFile(
-            str(mp3),
-            filename="song.mp3"
-        )
+        audio_file = str(mp3)
 
         await context.bot.send_audio(
             chat_id=query.from_user.id,
