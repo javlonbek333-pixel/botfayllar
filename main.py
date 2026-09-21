@@ -274,6 +274,79 @@ async def process_url(update, context, url):
         shutil.rmtree(work, ignore_errors=True)
 
 
+
+def youtube_song_search(query, limit=10):
+    folder = DOWNLOAD_DIR / ("search_" + uuid.uuid4().hex)
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        opts = yt_opts(folder)
+        opts.update({"skip_download": True, "extract_flat": True, "quiet": True, "no_warnings": True})
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+        results = []
+        for item in (info.get("entries") or []):
+            if not item:
+                continue
+            url = item.get("webpage_url") or item.get("url")
+            title = item.get("title") or "Noma'lum"
+            if url:
+                results.append({"url": url, "title": title})
+        return results
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+async def send_song_search_results(update, context, text):
+    await update.message.reply_text("🔎 YouTube'dan qo'shiq qidirilmoqda...")
+    results = await asyncio.to_thread(youtube_song_search, text, 10)
+    if not results:
+        await update.message.reply_text("❌ Qo'shiq topilmadi.")
+        return
+    jobs = context.bot_data.setdefault("song_search_jobs", {})
+    buttons = []
+    for item in results:
+        job_id = uuid.uuid4().hex[:12]
+        jobs[job_id] = item
+        buttons.append([InlineKeyboardButton(f"🎵 {item['title'][:55]}", callback_data=f"searchmp3|{job_id}")])
+    await update.message.reply_text(
+        "🎵 Topilgan qo'shiqlar:\nKeraklisini tanlang:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def search_song_mp3(update, context):
+    q = update.callback_query
+    await q.answer("⏳ MP3 yuklanmoqda...")
+    job_id = (q.data or "").split("|", 1)[-1]
+    job = context.bot_data.setdefault("song_search_jobs", {}).get(job_id)
+    if not job:
+        await q.message.reply_text("❌ Qidiruv sessiyasi tugagan. Qo'shiq nomini qaytadan yuboring.")
+        return
+    work = DOWNLOAD_DIR / uuid.uuid4().hex
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        opts = yt_opts(work)
+        opts["format"] = "bestaudio/best"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = await asyncio.to_thread(ydl.extract_info, job["url"], download=True)
+            downloaded = Path(ydl.prepare_filename(info))
+        if not downloaded.exists():
+            downloaded = find_downloaded_file(work)
+        if not downloaded:
+            raise RuntimeError("Audio fayl topilmadi.")
+        output = work / "song.mp3"
+        await asyncio.to_thread(extract_mp3, downloaded, output)
+        with open(output, "rb") as fh:
+            await q.message.reply_audio(
+                audio=InputFile(fh, filename=f"{safe_name(job['title'])}.mp3"),
+                caption=CAPTION,
+            )
+    except Exception as e:
+        logger.exception("Qidirilgan qo'shiq MP3 xatosi")
+        await q.message.reply_text(f"❌ MP3 yuklashda xatolik:\n{str(e)[:1500]}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
 async def url_message(update, context):
     text = (update.message.text or "").strip()
     if is_url(text):
@@ -290,14 +363,15 @@ async def url_message(update, context):
             await update.message.reply_text("🔎 Bu havola qo'llab-quvvatlanadigan saytlar ro'yxatida yo'q.")
         return
 
-    results = google_search(text, 10)
-    if results:
-        lines = ["🔎 Google qidiruv natijalari:\n"]
-        for i, (title, link) in enumerate(results, 1):
-            lines.append(f"{i}. {title}\n{link}\n")
-        await update.message.reply_text("\n".join(lines)[:4000])
+    # Qo'shiqchi yoki qo'shiq nomi: Google API shart emas, YouTube orqali qidiriladi.
+    if len(text) >= 2:
+        try:
+            await send_song_search_results(update, context, text)
+        except Exception as e:
+            logger.exception("YouTube qo'shiq qidiruv xatosi")
+            await update.message.reply_text(f"❌ Qo'shiq qidirishda xatolik:\n{str(e)[:1500]}")
     else:
-        await update.message.reply_text("🎵 Qo'shiq yoki ijrochi nomini yuboring yoki musiqa bor audio/video yuboring.")
+        await update.message.reply_text("🎵 Qo'shiq yoki ijrochi nomini yuboring.")
 
 
 async def youtube_download(update, context, mode):
@@ -472,6 +546,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(media_callback, pattern=r"^(ytvideo|ytmp3|jobmp3\|.+)$"))
     app.add_handler(CallbackQueryHandler(song_callback, pattern=r"^songmp3$"))
+    app.add_handler(CallbackQueryHandler(search_song_mp3, pattern=r"^searchmp3\|.+$"))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO | filters.VIDEO_NOTE, recognize_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, url_message))
     app.add_error_handler(error_handler)
