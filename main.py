@@ -23,11 +23,11 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-VIDEO_KBPS = 310
-AUDIO_KBPS = 64
-MP3_KBPS = 128
+VIDEO_KBPS = 800  # HD video uchun bitrate oshirildi
+AUDIO_KBPS = 128
+MP3_KBPS = 192  # MP3 sifati oshirildi
 FPS = 30
-MAX_UPLOAD_BYTES = 49 * 1024 * 1024  # Лимит Telegram API - 49 МБ
+MAX_UPLOAD_BYTES = 49 * 1024 * 1024  # Telegram Bot API limiti - 49 MB
 SEARCH_LIMIT = 100
 PAGE_SIZE = 10
 TTL = 1800
@@ -112,32 +112,30 @@ def ytopts(folder, audio=False, cookies=True):
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "retries": 5,
-        "fragment_retries": 5,
+        "retries": 10,
+        "fragment_retries": 10,
         "concurrent_fragment_downloads": 8,
         "socket_timeout": 30,
         "buffersize": 1024 * 1024,
         "merge_output_format": "mp4",
-        # Ограничение качества до 480p
+        # Sifat 720p HD ga ko'tarildi
         "format": (
             "bestaudio[ext=m4a]/bestaudio/best"
             if audio
-            else "bv*[height<=480]+ba/b[height<=480]/best"
+            else "bv*[height<=720]+ba/b[height<=720]/best"
         ),
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android", "mweb"],
+            }
+        },
         "user_agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
         ),
         "nocheckcertificate": True,
         "js_runtimes": {"node": {}},
         "remote_components": {"ejs": ["github"]},
-        "extractor_args": {
-            "youtubepot-bgutilhttp": {
-                "base_url": os.getenv(
-                    "POT_PROVIDER_URL", "http://127.0.0.1:4416"
-                )
-            }
-        },
     }
     if cookies:
         c = cookie_file(folder)
@@ -220,16 +218,17 @@ def size(p):
 
 
 def vf(w, h):
+    # HD (720p) piksellar bo'yicha masshtablash
     if h > w:
         return (
-            "scale=w='min(480,iw)':h='min(854,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+            "scale=w='min(720,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
         )
     if w > h:
         return (
-            "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+            "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
         )
     return (
-        "scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+        "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
     )
 
 
@@ -251,9 +250,9 @@ def video(src, dst):
         "-b:v",
         f"{VIDEO_KBPS}k",
         "-maxrate",
-        f"{VIDEO_KBPS}k",
-        "-bufsize",
         f"{VIDEO_KBPS*2}k",
+        "-bufsize",
+        f"{VIDEO_KBPS*3}k",
         "-pix_fmt",
         "yuv420p",
         "-threads",
@@ -277,9 +276,7 @@ def video(src, dst):
         str(dst),
     ])
     if not dst.exists() or dst.stat().st_size > MAX_UPLOAD_BYTES:
-        raise RuntimeError(
-            "Video 50 MB limitdan oshdi yoki hosil bo'lmadi."
-        )
+        raise RuntimeError("Video 50 MB limitdan oshdi yoki hosil bo'lmadi.")
 
 
 def mp3(src, dst, title=None, artist=None):
@@ -373,10 +370,11 @@ async def text_message(update, context):
     u = get_url(t)
     if u and supported(u):
         if is_youtube(u):
+            # Format tanlash menyusi (VIDEO / MP3)
             await update.message.reply_text(
                 "Kerakli formatni tanlang:",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🎬 VIDEO", callback_data=f"ytvideo|{u}"),
+                    InlineKeyboardButton("🎬 VIDEO (HD)", callback_data=f"ytvideo|{u}"),
                     InlineKeyboardButton("🎵 MP3", callback_data=f"ytmp3|{u}"),
                 ]]),
             )
@@ -416,9 +414,7 @@ async def song_page(update, context):
     _, sid, p = q.data.split("|", 2)
     d = context.bot_data.get("searches", {}).get(sid)
     if not d or time.time() - d["created"] > TTL:
-        await q.edit_message_text(
-            "❌ Qidiruv eskirgan. Qaytadan qidiring."
-        )
+        await q.edit_message_text("❌ Qidiruv eskirgan. Qaytadan qidiring.")
         return
     await q.edit_message_reply_markup(
         reply_markup=keyboard(sid, int(p), d["results"])
@@ -604,6 +600,8 @@ async def recognize(update, context):
                 "artist": artist,
                 "created": time.time(),
             }
+
+            # Shazam natijasidan so'ng to'liq qo'shiqni yuklash tugmasi
             await status.edit_text(
                 f"🎵 {artist+' — ' if artist else ''}{title}",
                 reply_markup=InlineKeyboardMarkup([[
