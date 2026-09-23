@@ -22,7 +22,7 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-VIDEO_KBPS = 600  # Videoning bitreyti
+VIDEO_KBPS = 700  # Videoning bitreyti
 AUDIO_KBPS = 96   # Ovoz bitreyti
 MP3_KBPS = 128    # MP3 bitreyti
 FPS = 25
