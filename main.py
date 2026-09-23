@@ -22,8 +22,8 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-VIDEO_KBPS = 400  # Videoning pastroq bitreyti
-AUDIO_KBPS = 96   # Ovozning pastroq bitreyti
+VIDEO_KBPS = 400  # Videoning bitreyti
+AUDIO_KBPS = 96   # Ovoz bitreyti
 MP3_KBPS = 128    # MP3 bitreyti
 FPS = 25
 MAX_UPLOAD_BYTES = 49 * 1024 * 1024  # Telegram Bot API limiti - 49 MB
@@ -94,12 +94,12 @@ def ytopts(folder, audio=False, cookies=True):
         "socket_timeout": 30,
         "buffersize": 1024 * 1024,
         "merge_output_format": "mp4",
+        # Instagram va boshqa platformalar uchun audio format parametri moslashtirildi
         "format": (
-            "bestaudio[ext=m4a]/bestaudio/best"
+            "bestaudio/b/best"
             if audio
             else "bv*[height<=480]+ba/b[height<=480]/best"
         ),
-        # YouTube "The page needs to be reloaded" xatosini tuzatuvchi sozlama:
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "ios", "mweb"]
@@ -250,6 +250,8 @@ def mp3(src, dst, title=None, artist=None):
     a = [
         "-i",
         str(src),
+        "-map",
+        "0:a:0?",  # Video ichidagi birinchi audio oqimini tanlaydi
         "-vn",
         "-c:a",
         "libmp3lame",
@@ -279,7 +281,7 @@ def downloaded(folder, exts):
         if p.is_file()
         and p.name != "youtube_cookies.txt"
         and p.stat().st_size > 0
-        and p.suffix.lower() in exts
+        and (not exts or p.suffix.lower() in exts)
     ]
     return max(fs, key=lambda p: p.stat().st_mtime) if fs else None
 
@@ -439,7 +441,7 @@ async def song_download(update, url, title=None, artist=None):
             info = await asyncio.to_thread(ytget, url, work, True)
             src = downloaded(
                 work,
-                {".m4a", ".webm", ".opus", ".mp4", ".mkv", ".aac", ".wav"},
+                {".m4a", ".webm", ".opus", ".mp4", ".mkv", ".aac", ".wav", ".mp3"},
             )
             if not src:
                 raise RuntimeError("Audio fayl topilmadi.")
