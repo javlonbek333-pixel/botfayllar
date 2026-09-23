@@ -74,10 +74,20 @@ def clean(p):
 
 
 def cookie_file(folder):
-    text = os.getenv("YOUTUBE_COOKIES", "").strip()
-    if not text:
+    # Instagram va YouTube cookies matnlarini bitta faylga birlashtirib saqlaydi
+    insta_text = os.getenv("INSTAGRAM_COOKIES", "").strip()
+    yt_text = os.getenv("YOUTUBE_COOKIES", "").strip()
+    
+    text = ""
+    if insta_text:
+        text += insta_text + "\n"
+    if yt_text:
+        text += yt_text + "\n"
+
+    if not text.strip():
         return None
-    p = folder / "youtube_cookies.txt"
+
+    p = folder / "cookies.txt"
     p.write_text(text, encoding="utf-8", newline="\n")
     return str(p)
 
@@ -94,7 +104,6 @@ def ytopts(folder, audio=False, cookies=True):
         "socket_timeout": 30,
         "buffersize": 1024 * 1024,
         "merge_output_format": "mp4",
-        # Instagram va boshqa platformalar uchun audio format parametri moslashtirildi
         "format": (
             "bestaudio/b/best"
             if audio
@@ -103,11 +112,14 @@ def ytopts(folder, audio=False, cookies=True):
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "ios", "mweb"]
+            },
+            "instagram": {
+                "check_formats": None
             }
         },
         "user_agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
         ),
         "nocheckcertificate": True,
     }
@@ -251,7 +263,7 @@ def mp3(src, dst, title=None, artist=None):
         "-i",
         str(src),
         "-map",
-        "0:a:0?",  # Video ichidagi birinchi audio oqimini tanlaydi
+        "0:a:0?",  # Audio oqimini aniq tanlaydi
         "-vn",
         "-c:a",
         "libmp3lame",
@@ -279,7 +291,7 @@ def downloaded(folder, exts):
         p
         for p in folder.rglob("*")
         if p.is_file()
-        and p.name != "youtube_cookies.txt"
+        and p.name != "cookies.txt"
         and p.stat().st_size > 0
         and (not exts or p.suffix.lower() in exts)
     ]
