@@ -22,12 +22,11 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-VIDEO_KBPS = 800
-AUDIO_KBPS = 128
-MP3_KBPS = 192
-FPS = 30
+VIDEO_KBPS = 400  # Bitreyt pasaytirildi (sobiq 800)
+AUDIO_KBPS = 96   # Ovoz bitreyti pasaytirildi (sobiq 128)
+MP3_KBPS = 128    # MP3 bitreyti pasaytirildi (sobiq 192)
+FPS = 25          # Kadrlar soni kamaytirildi (sobiq 30)
 MAX_UPLOAD_BYTES = 49 * 1024 * 1024  # Telegram Bot API limiti - 49 MB
-SEARCH_LIMIT = 100
 PAGE_SIZE = 10
 TTL = 1800
 ROOT = Path("/tmp/telegram_downloader")
@@ -75,7 +74,6 @@ def clean(p):
 
 
 def cookie_file(folder):
-    # Oddiy matn shaklidagi YOUTUBE_COOKIES o'qiladi (Base64 shart emas)
     text = os.getenv("YOUTUBE_COOKIES", "").strip()
     if not text:
         return None
@@ -99,7 +97,7 @@ def ytopts(folder, audio=False, cookies=True):
         "format": (
             "bestaudio[ext=m4a]/bestaudio/best"
             if audio
-            else "bv*[height<=720]+ba/b[height<=720]/best"
+            else "bv*[height<=480]+ba/b[height<=480]/best" # Maksimal sifat 480p ga tushirildi
         ),
         "user_agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -188,17 +186,12 @@ def size(p):
 
 
 def vf(w, h):
+    # Maksimal ruxsat 480p ga tushirildi
     if h > w:
-        return (
-            "scale=w='min(720,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
-        )
+        return "scale=w='min(480,iw)':h='min(854,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
     if w > h:
-        return (
-            "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
-        )
-    return (
-        "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
-    )
+        return "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+    return "scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
 
 
 def video(src, dst):
@@ -328,8 +321,7 @@ def keyboard(sid, page, items):
 
 async def start(update, context):
     await update.message.reply_text(
-        "Media yuklashni boshlash uchun uning havolasini yuboring.\n\nHar qanday"
-        " havolada VIDEO, MP3 va To'liq musiqani qidirish imkoniyati mavjud!"
+        "Media yuklashni boshlash uchun uning havolasini yuboring."
     )
 
 
@@ -337,22 +329,46 @@ async def text_message(update, context):
     t = (update.message.text or "").strip()
     u = get_url(t)
     if u and supported(u):
-        hid = uuid.uuid4().hex[:10]
-        context.bot_data.setdefault("links", {})[hid] = {
-            "url": u,
-            "created": time.time(),
-        }
-        # BARCHA havolalar uchun tugmalar menyusi chiqariladi:
-        markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🎬 VIDEO (HD)", callback_data=f"dlv|{hid}"),
-                InlineKeyboardButton("🎵 MP3", callback_data=f"dlm|{hid}"),
-            ],
-            [
-                InlineKeyboardButton("🎶 To'liq musiqani yuklash", callback_data=f"dlf|{hid}")
-            ]
-        ])
-        await update.message.reply_text("Kerakli amalni tanlang:", reply_markup=markup)
+        status = await update.message.reply_text("⏳ Video yuklanmoqda...")
+        work = Path(tempfile.mkdtemp(prefix="media_", dir=ROOT))
+        try:
+            try:
+                info = await asyncio.to_thread(ytget, u, work, False)
+                src = downloaded(
+                    work,
+                    {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"},
+                )
+                if not src:
+                    raise RuntimeError("Video fayl topilmadi.")
+
+                out = work / "video.mp4"
+                await asyncio.to_thread(video, src, out)
+
+                hid = uuid.uuid4().hex[:10]
+                context.bot_data.setdefault("links", {})[hid] = {
+                    "url": u,
+                    "created": time.time(),
+                }
+
+                markup = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("🎵 MP3 yuklash", callback_data=f"dlm|{hid}"),
+                        InlineKeyboardButton("🎶 To'liq musiqani yuklash", callback_data=f"dlf|{hid}"),
+                    ]
+                ])
+
+                with open(out, "rb") as f:
+                    await update.message.reply_video(
+                        video=f,
+                        caption=CAPTION,
+                        supports_streaming=True,
+                        reply_markup=markup,
+                    )
+                await status.delete()
+            except Exception as e:
+                await status.edit_text("❌ Yuklashda xatolik:\n" + err(e))
+        finally:
+            clean(work)
     elif u:
         await update.message.reply_text("❌ Bu havola qo'llab-quvvatlanmaydi.")
     elif t:
@@ -410,9 +426,9 @@ async def song_download(update, url, title=None, artist=None):
     work = Path(tempfile.mkdtemp(prefix="song_", dir=ROOT))
     try:
         status = (
-            await update.callback_query.message.reply_text("⏳ Yuklanmoqda...")
+            await update.callback_query.message.reply_text("⏳ MP3 yuklanmoqda...")
             if update.callback_query
-            else await update.message.reply_text("⏳ Yuklanmoqda...")
+            else await update.message.reply_text("⏳ MP3 yuklanmoqda...")
         )
         try:
             info = await asyncio.to_thread(ytget, url, work, True)
@@ -457,15 +473,14 @@ async def link_action_cb(update, context):
     url = link_info["url"]
 
     if act == "dlf":
-        # To'liq musiqani topish tugmasi bosilganda (Shazam/Qidiruv orqali)
-        status = await q.message.reply_text("⏳ Video/Audio o'rganilmoqda va qo'shiq qidirilmoqda...")
+        status = await q.message.reply_text("⏳ Qo'shiq ma'lumotlari qidirilmoqda...")
         work = Path(tempfile.mkdtemp(prefix="search_full_", dir=ROOT))
         try:
             info = await asyncio.to_thread(ytget, url, work, True)
             title = info.get("title") or ""
             uploader = info.get("uploader") or info.get("artist") or ""
             search_query = f"{uploader} {title}".strip()
-            
+
             r = await asyncio.to_thread(search, search_query, 5)
             if not r:
                 await status.edit_text("❌ Asl qo'shiq topilmadi.")
@@ -478,54 +493,8 @@ async def link_action_cb(update, context):
             clean(work)
         return
 
-    # VIDEO yoki MP3 yuklash
-    work = Path(tempfile.mkdtemp(prefix="media_", dir=ROOT))
-    status = await q.message.reply_text("⏳ Yuklanmoqda...")
-    try:
-        try:
-            is_mp3 = (act == "dlm")
-            info = await asyncio.to_thread(ytget, url, work, is_mp3)
-            src = downloaded(
-                work,
-                {
-                    ".mp4",
-                    ".mkv",
-                    ".webm",
-                    ".mov",
-                    ".m4v",
-                    ".m4a",
-                    ".opus",
-                    ".aac",
-                    ".avi",
-                },
-            )
-            if not src:
-                raise RuntimeError("Fayl topilmadi.")
-
-            if is_mp3:
-                out = work / "song.mp3"
-                title = info.get("title") or "Noma'lum qo'shiq"
-                artist = info.get("artist") or info.get("uploader") or ""
-                await asyncio.to_thread(mp3, src, out, title, artist)
-                with open(out, "rb") as f:
-                    await q.message.reply_audio(
-                        audio=f,
-                        title=title,
-                        performer=artist or None,
-                        caption=CAPTION,
-                    )
-            else:
-                out = work / "video.mp4"
-                await asyncio.to_thread(video, src, out)
-                with open(out, "rb") as f:
-                    await q.message.reply_video(
-                        video=f, caption=CAPTION, supports_streaming=True
-                    )
-            await status.delete()
-        except Exception as e:
-            await status.edit_text("❌ Yuklashda xatolik:\n" + err(e))
-    finally:
-        clean(work)
+    if act == "dlm":
+        await song_download(update, url)
 
 
 async def recognize(update, context):
@@ -637,7 +606,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(
-        CallbackQueryHandler(link_action_cb, pattern=r"^(dlv|dlm|dlf)\|")
+        CallbackQueryHandler(link_action_cb, pattern=r"^(dlm|dlf)\|")
     )
     app.add_handler(CallbackQueryHandler(song_page, pattern=r"^songpage\|"))
     app.add_handler(
