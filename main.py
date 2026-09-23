@@ -22,10 +22,10 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-VIDEO_KBPS = 400  # Bitreyt pasaytirildi (sobiq 800)
-AUDIO_KBPS = 96   # Ovoz bitreyti pasaytirildi (sobiq 128)
-MP3_KBPS = 128    # MP3 bitreyti pasaytirildi (sobiq 192)
-FPS = 25          # Kadrlar soni kamaytirildi (sobiq 30)
+VIDEO_KBPS = 400  # Videoning pastroq bitreyti
+AUDIO_KBPS = 96   # Ovozning pastroq bitreyti
+MP3_KBPS = 128    # MP3 bitreyti
+FPS = 25
 MAX_UPLOAD_BYTES = 49 * 1024 * 1024  # Telegram Bot API limiti - 49 MB
 PAGE_SIZE = 10
 TTL = 1800
@@ -97,8 +97,14 @@ def ytopts(folder, audio=False, cookies=True):
         "format": (
             "bestaudio[ext=m4a]/bestaudio/best"
             if audio
-            else "bv*[height<=480]+ba/b[height<=480]/best" # Maksimal sifat 480p ga tushirildi
+            else "bv*[height<=480]+ba/b[height<=480]/best"
         ),
+        # YouTube "The page needs to be reloaded" xatosini tuzatuvchi sozlama:
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb"]
+            }
+        },
         "user_agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -186,7 +192,6 @@ def size(p):
 
 
 def vf(w, h):
-    # Maksimal ruxsat 480p ga tushirildi
     if h > w:
         return "scale=w='min(480,iw)':h='min(854,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
     if w > h:
