@@ -74,7 +74,6 @@ def clean(p):
 
 
 def cookie_file(folder):
-    # Instagram va YouTube cookies matnlarini bitta faylga birlashtirib saqlaydi
     insta_text = os.getenv("INSTAGRAM_COOKIES", "").strip()
     yt_text = os.getenv("YOUTUBE_COOKIES", "").strip()
     
@@ -110,17 +109,10 @@ def ytopts(folder, audio=False, cookies=True):
             else "bv*[height<=480]+ba/b[height<=480]/best"
         ),
         "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios", "mweb"]
-            },
             "instagram": {
                 "check_formats": None
             }
         },
-        "user_agent": (
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-        ),
         "nocheckcertificate": True,
     }
     if cookies:
@@ -144,6 +136,10 @@ def search(q, n=100):
         "playlistend": n,
         "socket_timeout": 15,
     }
+    c = cookie_file(ROOT)
+    if c:
+        o["cookiefile"] = c
+        
     with yt_dlp.YoutubeDL(o) as y:
         info = y.extract_info(f"ytsearch{n}:{q}", download=False)
     out = []
@@ -263,7 +259,7 @@ def mp3(src, dst, title=None, artist=None):
         "-i",
         str(src),
         "-map",
-        "0:a:0?",  # Audio oqimini aniq tanlaydi
+        "0:a:0?",
         "-vn",
         "-c:a",
         "libmp3lame",
