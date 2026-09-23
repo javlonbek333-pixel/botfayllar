@@ -108,11 +108,6 @@ def ytopts(folder, audio=False, cookies=True):
             if audio
             else "bv*[height<=480]+ba/b[height<=480]/best"
         ),
-        "extractor_args": {
-            "instagram": {
-                "check_formats": None
-            }
-        },
         "nocheckcertificate": True,
     }
     if cookies:
